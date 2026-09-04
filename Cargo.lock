@@ -6,6 +6,7 @@ version = 4
 name = "PickAPeckOfPacketParsers"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "pnet",
 ]
 

@@ -251,6 +251,34 @@ async fn run_pppp(
     Query(params): Query<HashMap<String, String>>,
 ) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
     let interface = params.get("interface").cloned().unwrap_or_default();
+    let mut args = vec![interface.clone()];
+
+    let non_empty = |key: &str| params.get(key).map(|v| v.trim()).filter(|v| !v.is_empty());
+
+    if let Some(protocol) = non_empty("protocol").filter(|p| *p != "all") {
+        args.push("--protocol".to_string());
+        args.push(protocol.to_string());
+    }
+    if let Some(port) = non_empty("port") {
+        args.push("--port".to_string());
+        args.push(port.to_string());
+    }
+    if let Some(host) = non_empty("host") {
+        args.push("--host".to_string());
+        args.push(host.to_string());
+    }
+    if params.get("save_pcap").map(String::as_str) == Some("1") {
+        let ts = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let filename = format!("{}-{}.pcap", interface, ts);
+        // Absolute, regardless of the dashboard's own working directory, so
+        // it always lands in the gitignored captures/ dir next to the tool.
+        let path = crate_dir("PickAPeckOfPacketParsers").join("captures").join(filename);
+        args.push("--pcap-out".to_string());
+        args.push(path.to_string_lossy().into_owned());
+    }
 
     run_tool(
         run_state,
@@ -258,7 +286,7 @@ async fn run_pppp(
         "PickAPeckOfPacketParsers",
         crate_dir("PickAPeckOfPacketParsers"),
         crate_binary("PickAPeckOfPacketParsers"),
-        vec![interface],
+        args,
     )
     .await
 }

@@ -21,12 +21,46 @@
       </select>
       <span class="hint">Capturing needs elevated privileges — run the dashboard with sudo, or grant it once: sudo setcap cap_net_raw+ep target/release/PickAPeckOfPacketParsers</span>
     </label>
+    <label>
+      Protocol
+      <select name="protocol">
+        <option value="all" selected>All</option>
+        <option value="tcp">TCP</option>
+        <option value="udp">UDP</option>
+        <option value="icmp">ICMP</option>
+        <option value="arp">ARP</option>
+      </select>
+    </label>
+    <label>
+      Port
+      <span class="hint">Optional — only show packets involving this port</span>
+      <input type="number" name="port" min="0" max="65535" placeholder="e.g. 443">
+    </label>
+    <label>
+      Host
+      <span class="hint">Optional — only show packets involving this IP</span>
+      <input type="text" name="host" placeholder="e.g. 192.168.1.1">
+    </label>
+    <label class="toggle">
+      <input type="checkbox" name="save_pcap">
+      Save capture to a .pcap file
+    </label>
     <div class="button-row">
       <button type="submit" id="run-btn">Start capture</button>
       <button type="button" id="stop-btn" class="stop" hidden>Stop</button>
       <button type="button" id="clear-btn" class="stop">Clear</button>
     </div>
   </form>
+  <div class="panels">
+    <div class="panel">
+      <h2>Stats</h2>
+      <pre id="stats" class="log-panel"></pre>
+    </div>
+    <div class="panel">
+      <h2>Alerts</h2>
+      <pre id="alerts" class="log-panel"></pre>
+    </div>
+  </div>
   <div class="panel">
     <h2>Output</h2>
     <pre id="output" class="log-panel"></pre>
@@ -36,6 +70,8 @@
   const form = document.getElementById('capture-form');
   const interfaceSelect = document.getElementById('interface-select');
   const output = document.getElementById('output');
+  const statsEl = document.getElementById('stats');
+  const alertsEl = document.getElementById('alerts');
   const runBtn = document.getElementById('run-btn');
   const stopBtn = document.getElementById('stop-btn');
   const clearBtn = document.getElementById('clear-btn');
@@ -47,9 +83,69 @@
     stopBtn.hidden = !running;
   }
 
+  // Client-side stats, computed from the same lines already being printed —
+  // no extra backend output needed. Not perfectly precise (e.g. a DNS line
+  // has no host/port of its own to tally) but good enough for a live summary.
+  let stats = { protocols: {}, hosts: {}, ports: {} };
+  const HOST_PORT = /(\[[0-9a-fA-F:]+\]|\d{1,3}(?:\.\d{1,3}){3})(?::(\d+))?/g;
+  const ALERT_LINE = /^ALERT\s+/;
+
+  function topEntries(obj, n) {
+    return Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, n);
+  }
+
+  function renderStats() {
+    const lines = ['Protocols:'];
+    for (const [proto, count] of topEntries(stats.protocols, 10)) {
+      lines.push(`  ${proto.padEnd(8)} ${count}`);
+    }
+    lines.push('', 'Top hosts:');
+    for (const [host, count] of topEntries(stats.hosts, 5)) {
+      lines.push(`  ${host.padEnd(20)} ${count}`);
+    }
+    lines.push('', 'Top ports:');
+    for (const [port, count] of topEntries(stats.ports, 5)) {
+      lines.push(`  ${port.padEnd(8)} ${count}`);
+    }
+    statsEl.textContent = lines.join('\n');
+  }
+
+  function updateStats(line) {
+    const protoMatch = line.match(/^(\S+)/);
+    if (protoMatch) {
+      const proto = protoMatch[1];
+      stats.protocols[proto] = (stats.protocols[proto] || 0) + 1;
+    }
+
+    let match;
+    HOST_PORT.lastIndex = 0;
+    while ((match = HOST_PORT.exec(line)) !== null) {
+      stats.hosts[match[1]] = (stats.hosts[match[1]] || 0) + 1;
+      if (match[2]) {
+        stats.ports[match[2]] = (stats.ports[match[2]] || 0) + 1;
+      }
+    }
+
+    renderStats();
+  }
+
   function handleLine(line) {
     output.textContent += line + '\n';
     output.scrollTop = output.scrollHeight;
+
+    if (ALERT_LINE.test(line)) {
+      alertsEl.textContent += line + '\n';
+      alertsEl.scrollTop = alertsEl.scrollHeight;
+    } else {
+      updateStats(line);
+    }
+  }
+
+  function resetPanels() {
+    output.textContent = '';
+    alertsEl.textContent = '';
+    stats = { protocols: {}, hosts: {}, ports: {} };
+    renderStats();
   }
 
   fetch('/pppp/interfaces')
@@ -83,11 +179,19 @@
     }
 
     const iface = form.interface.value;
+    const protocol = form.protocol.value;
+    const port = form.port.value;
+    const host = form.host.value;
+    const savePcap = form.save_pcap.checked ? '1' : '0';
 
-    output.textContent = '';
+    resetPanels();
     setRunning(true);
 
-    const url = `/pppp/run?interface=${encodeURIComponent(iface)}`;
+    const url = `/pppp/run?interface=${encodeURIComponent(iface)}`
+      + `&protocol=${encodeURIComponent(protocol)}`
+      + `&port=${encodeURIComponent(port)}`
+      + `&host=${encodeURIComponent(host)}`
+      + `&save_pcap=${savePcap}`;
     source = new EventSource(url);
 
     source.onmessage = (event) => handleLine(event.data);
@@ -110,9 +214,9 @@
     });
   });
 
-  clearBtn.addEventListener('click', () => {
-    output.textContent = '';
-  });
+  clearBtn.addEventListener('click', resetPanels);
+
+  renderStats();
 </script>
 </body>
 </html>
