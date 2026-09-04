@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PPPP — Rusty Tools</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <a class="back" href="/">← Rusty Tools</a>
+  <h1>PPPP</h1>
+  <p>PickAPeckOfPacketParsers — live packet capture &amp; parsing.</p>
+</header>
+<main>
+  <form id="capture-form">
+    <label>
+      Interface
+      <select name="interface" id="interface-select" required>
+        <option value="" disabled selected>Loading interfaces…</option>
+      </select>
+      <span class="hint">Capturing needs elevated privileges — run the dashboard with sudo, or grant it once: sudo setcap cap_net_raw+ep target/release/PickAPeckOfPacketParsers</span>
+    </label>
+    <div class="button-row">
+      <button type="submit" id="run-btn">Start capture</button>
+      <button type="button" id="stop-btn" class="stop" hidden>Stop</button>
+      <button type="button" id="clear-btn" class="stop">Clear</button>
+    </div>
+  </form>
+  <div class="panel">
+    <h2>Output</h2>
+    <pre id="output" class="log-panel"></pre>
+  </div>
+</main>
+<script>
+  const form = document.getElementById('capture-form');
+  const interfaceSelect = document.getElementById('interface-select');
+  const output = document.getElementById('output');
+  const runBtn = document.getElementById('run-btn');
+  const stopBtn = document.getElementById('stop-btn');
+  const clearBtn = document.getElementById('clear-btn');
+  let source = null;
+
+  function setRunning(running) {
+    runBtn.disabled = running;
+    runBtn.textContent = running ? 'Capturing…' : 'Start capture';
+    stopBtn.hidden = !running;
+  }
+
+  function handleLine(line) {
+    output.textContent += line + '\n';
+    output.scrollTop = output.scrollHeight;
+  }
+
+  fetch('/pppp/interfaces')
+    .then((res) => res.text())
+    .then((text) => {
+      const names = text.split('\n').filter(Boolean);
+      interfaceSelect.innerHTML = '';
+      if (names.length === 0) {
+        const option = document.createElement('option');
+        option.textContent = 'No interfaces found';
+        option.disabled = true;
+        option.selected = true;
+        interfaceSelect.appendChild(option);
+        return;
+      }
+      for (const name of names) {
+        const option = document.createElement('option');
+        option.value = name;
+        option.textContent = name;
+        interfaceSelect.appendChild(option);
+      }
+    })
+    .catch(() => {
+      interfaceSelect.innerHTML = '<option value="" disabled selected>Failed to load interfaces</option>';
+    });
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (source) {
+      source.close();
+    }
+
+    const iface = form.interface.value;
+
+    output.textContent = '';
+    setRunning(true);
+
+    const url = `/pppp/run?interface=${encodeURIComponent(iface)}`;
+    source = new EventSource(url);
+
+    source.onmessage = (event) => handleLine(event.data);
+
+    source.addEventListener('done', () => {
+      setRunning(false);
+      source.close();
+    });
+
+    source.onerror = () => {
+      setRunning(false);
+      source.close();
+    };
+  });
+
+  stopBtn.addEventListener('click', () => {
+    stopBtn.disabled = true;
+    fetch('/pppp/stop', { method: 'POST' }).finally(() => {
+      stopBtn.disabled = false;
+    });
+  });
+
+  clearBtn.addEventListener('click', () => {
+    output.textContent = '';
+  });
+</script>
+</body>
+</html>
