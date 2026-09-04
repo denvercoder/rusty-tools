@@ -1,4 +1,4 @@
 [workspace]
 resolver = "2"
-members = ["Portofino", "dashboard", "PickAPeckOfPacketParsers"]
+members = ["Portofino", "dashboard", "PickAPeckOfPacketParsers", "OneForTheHoney", "Bunyan"]
 default-members = ["Portofino"]

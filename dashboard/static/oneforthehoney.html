@@ -1,0 +1,161 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OneForTheHoney — Rusty Tools</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <a class="back" href="/">← Rusty Tools</a>
+  <h1>OneForTheHoney</h1>
+  <p>Decoy-service honeypot listener — logs every connection attempt against a curated set of commonly-targeted ports.</p>
+</header>
+<main>
+  <form id="honey-form">
+    <label>
+      Bind address
+      <input type="text" name="bind" value="0.0.0.0" placeholder="0.0.0.0">
+      <span class="hint">0.0.0.0 (default) is reachable by any device that can reach this machine — only run this on networks you own or are authorized to monitor.</span>
+    </label>
+    <label>
+      Ports
+      <span class="hint">Optional — comma-separated. Defaults to 21,22,23,25,80,443,445,1433,3306,3389,5900,8080</span>
+      <input type="text" name="ports" placeholder="e.g. 22,80,3389">
+    </label>
+    <label class="toggle">
+      <input type="checkbox" name="banner" checked>
+      Send fake service banners (SSH/FTP/Telnet/SMTP)
+    </label>
+    <div class="button-row">
+      <button type="submit" id="run-btn">Start listening</button>
+      <button type="button" id="stop-btn" class="stop" hidden>Stop</button>
+      <button type="button" id="clear-btn" class="stop">Clear</button>
+    </div>
+  </form>
+  <div class="panels">
+    <div class="panel">
+      <h2>Connections</h2>
+      <pre id="conns" class="log-panel"></pre>
+    </div>
+    <div class="panel">
+      <h2>Alerts</h2>
+      <pre id="alerts" class="log-panel"></pre>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Output</h2>
+    <pre id="output" class="log-panel"></pre>
+  </div>
+</main>
+<script>
+  const form = document.getElementById('honey-form');
+  const output = document.getElementById('output');
+  const connsEl = document.getElementById('conns');
+  const alertsEl = document.getElementById('alerts');
+  const runBtn = document.getElementById('run-btn');
+  const stopBtn = document.getElementById('stop-btn');
+  const clearBtn = document.getElementById('clear-btn');
+  let source = null;
+
+  function setRunning(running) {
+    runBtn.disabled = running;
+    runBtn.textContent = running ? 'Listening…' : 'Start listening';
+    stopBtn.hidden = !running;
+  }
+
+  // Client-side tally, computed from the same CONN lines already being
+  // printed — no extra backend output needed.
+  let conns = { ports: {}, hosts: {} };
+  const CONN_LINE = /^CONN\s+(\d+)\s+\([^)]+\)\s+from\s+([^:]+):\d+/;
+  const ALERT_LINE = /^ALERT\s+/;
+
+  function topEntries(obj, n) {
+    return Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, n);
+  }
+
+  function renderConns() {
+    const lines = ['By decoy port:'];
+    for (const [port, count] of topEntries(conns.ports, 12)) {
+      lines.push(`  ${port.padEnd(8)} ${count}`);
+    }
+    lines.push('', 'By source IP:');
+    for (const [host, count] of topEntries(conns.hosts, 10)) {
+      lines.push(`  ${host.padEnd(20)} ${count}`);
+    }
+    connsEl.textContent = lines.join('\n');
+  }
+
+  function updateConns(line) {
+    const match = line.match(CONN_LINE);
+    if (!match) return;
+    const [, port, host] = match;
+    conns.ports[port] = (conns.ports[port] || 0) + 1;
+    conns.hosts[host] = (conns.hosts[host] || 0) + 1;
+    renderConns();
+  }
+
+  function handleLine(line) {
+    output.textContent += line + '\n';
+    output.scrollTop = output.scrollHeight;
+
+    if (ALERT_LINE.test(line)) {
+      alertsEl.textContent += line + '\n';
+      alertsEl.scrollTop = alertsEl.scrollHeight;
+    } else {
+      updateConns(line);
+    }
+  }
+
+  function resetPanels() {
+    output.textContent = '';
+    alertsEl.textContent = '';
+    conns = { ports: {}, hosts: {} };
+    renderConns();
+  }
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (source) {
+      source.close();
+    }
+
+    const bind = form.bind.value;
+    const ports = form.ports.value;
+    const noBanner = form.banner.checked ? '0' : '1';
+
+    resetPanels();
+    setRunning(true);
+
+    const url = `/oneforthehoney/run?bind=${encodeURIComponent(bind)}`
+      + `&ports=${encodeURIComponent(ports)}`
+      + `&no_banner=${noBanner}`;
+    source = new EventSource(url);
+
+    source.onmessage = (event) => handleLine(event.data);
+
+    source.addEventListener('done', () => {
+      setRunning(false);
+      source.close();
+    });
+
+    source.onerror = () => {
+      setRunning(false);
+      source.close();
+    };
+  });
+
+  stopBtn.addEventListener('click', () => {
+    stopBtn.disabled = true;
+    fetch('/oneforthehoney/stop', { method: 'POST' }).finally(() => {
+      stopBtn.disabled = false;
+    });
+  });
+
+  clearBtn.addEventListener('click', resetPanels);
+
+  renderConns();
+</script>
+</body>
+</html>

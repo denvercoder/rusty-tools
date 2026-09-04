@@ -50,6 +50,12 @@ async fn main() {
         .route("/pppp/interfaces", get(pppp_interfaces))
         .route("/pppp/run", get(run_pppp))
         .route("/pppp/stop", post(stop_pppp))
+        .route("/oneforthehoney", get(honey_page))
+        .route("/oneforthehoney/run", get(run_honey))
+        .route("/oneforthehoney/stop", post(stop_honey))
+        .route("/bunyan", get(bunyan_page))
+        .route("/bunyan/run", get(run_bunyan))
+        .route("/bunyan/stop", post(stop_bunyan))
         .with_state(run_state);
 
     let listener = tokio::net::TcpListener::bind(BIND_ADDR).await.unwrap();
@@ -77,6 +83,14 @@ async fn portofino_page() -> Html<&'static str> {
 
 async fn pppp_page() -> Html<&'static str> {
     Html(include_str!("../static/pppp.html"))
+}
+
+async fn honey_page() -> Html<&'static str> {
+    Html(include_str!("../static/oneforthehoney.html"))
+}
+
+async fn bunyan_page() -> Html<&'static str> {
+    Html(include_str!("../static/bunyan.html"))
 }
 
 /// Absolute path to a sibling crate directory, resolved at compile time from
@@ -293,6 +307,65 @@ async fn run_pppp(
 
 async fn stop_pppp(State(run_state): State<RunState>) -> impl IntoResponse {
     stop_tool(run_state, "pppp")
+}
+
+async fn run_honey(
+    State(run_state): State<RunState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let non_empty = |key: &str| params.get(key).map(|v| v.trim()).filter(|v| !v.is_empty());
+
+    let mut args = Vec::new();
+    if let Some(bind) = non_empty("bind") {
+        args.push("--bind".to_string());
+        args.push(bind.to_string());
+    }
+    if let Some(ports) = non_empty("ports") {
+        args.push("--ports".to_string());
+        args.push(ports.to_string());
+    }
+    if params.get("no_banner").map(String::as_str) == Some("1") {
+        args.push("--no-banner".to_string());
+    }
+
+    run_tool(
+        run_state,
+        "oneforthehoney",
+        "OneForTheHoney",
+        crate_dir("OneForTheHoney"),
+        crate_binary("OneForTheHoney"),
+        args,
+    )
+    .await
+}
+
+async fn stop_honey(State(run_state): State<RunState>) -> impl IntoResponse {
+    stop_tool(run_state, "oneforthehoney")
+}
+
+async fn run_bunyan(
+    State(run_state): State<RunState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let mut args = Vec::new();
+    if let Some(file) = params.get("file").map(|v| v.trim()).filter(|v| !v.is_empty()) {
+        args.push("--file".to_string());
+        args.push(file.to_string());
+    }
+
+    run_tool(
+        run_state,
+        "bunyan",
+        "Bunyan",
+        crate_dir("Bunyan"),
+        crate_binary("Bunyan"),
+        args,
+    )
+    .await
+}
+
+async fn stop_bunyan(State(run_state): State<RunState>) -> impl IntoResponse {
+    stop_tool(run_state, "bunyan")
 }
 
 /// Network interface names, read straight from `/sys/class/net` (no

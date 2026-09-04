@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bunyan — Rusty Tools</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <a class="back" href="/">← Rusty Tools</a>
+  <h1>Bunyan</h1>
+  <p>Systemd-journal auth log analyzer — watches sshd &amp; sudo activity for brute-force and compromise patterns.</p>
+</header>
+<main>
+  <form id="bunyan-form">
+    <label>
+      Log file
+      <span class="hint">Optional — a saved `journalctl SYSLOG_FACILITY=10 -o json` export. Leave blank to tail the live journal.</span>
+      <input type="text" name="file" placeholder="e.g. sample.jsonl">
+    </label>
+    <div class="button-row">
+      <button type="submit" id="run-btn">Start</button>
+      <button type="button" id="stop-btn" class="stop" hidden>Stop</button>
+      <button type="button" id="clear-btn" class="stop">Clear</button>
+    </div>
+  </form>
+  <div class="panels">
+    <div class="panel">
+      <h2>Activity</h2>
+      <pre id="activity" class="log-panel"></pre>
+    </div>
+    <div class="panel">
+      <h2>Alerts</h2>
+      <pre id="alerts" class="log-panel"></pre>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Output</h2>
+    <pre id="output" class="log-panel"></pre>
+  </div>
+</main>
+<script>
+  const form = document.getElementById('bunyan-form');
+  const output = document.getElementById('output');
+  const activityEl = document.getElementById('activity');
+  const alertsEl = document.getElementById('alerts');
+  const runBtn = document.getElementById('run-btn');
+  const stopBtn = document.getElementById('stop-btn');
+  const clearBtn = document.getElementById('clear-btn');
+  let source = null;
+
+  function setRunning(running) {
+    runBtn.disabled = running;
+    runBtn.textContent = running ? 'Running…' : 'Start';
+    stopBtn.hidden = !running;
+  }
+
+  // Client-side tally, computed from the same LOGIN/SUDO lines already
+  // being printed — no extra backend output needed.
+  let activity = { loginOk: 0, loginFail: 0, sudoOk: 0, sudoFail: 0, users: {} };
+  const LOGIN_LINE = /^LOGIN\s+(ok|fail)\s+(\S+)/;
+  const SUDO_LINE = /^SUDO\s+(fail)?\s*(\S+)/;
+  const ALERT_LINE = /^ALERT\s+/;
+
+  function topEntries(obj, n) {
+    return Object.entries(obj).sort((a, b) => b[1] - a[1]).slice(0, n);
+  }
+
+  function renderActivity() {
+    const lines = [
+      `Logins:  ${activity.loginOk} ok / ${activity.loginFail} failed`,
+      `Sudo:    ${activity.sudoOk} ok / ${activity.sudoFail} failed`,
+      '',
+      'Most active users:',
+    ];
+    for (const [user, count] of topEntries(activity.users, 10)) {
+      lines.push(`  ${user.padEnd(16)} ${count}`);
+    }
+    activityEl.textContent = lines.join('\n');
+  }
+
+  function updateActivity(line) {
+    let match = line.match(LOGIN_LINE);
+    if (match) {
+      const [, result, user] = match;
+      if (result === 'ok') activity.loginOk++; else activity.loginFail++;
+      activity.users[user] = (activity.users[user] || 0) + 1;
+      renderActivity();
+      return;
+    }
+
+    match = line.match(SUDO_LINE);
+    if (match) {
+      const [, fail, user] = match;
+      if (fail) activity.sudoFail++; else activity.sudoOk++;
+      activity.users[user] = (activity.users[user] || 0) + 1;
+      renderActivity();
+    }
+  }
+
+  function handleLine(line) {
+    output.textContent += line + '\n';
+    output.scrollTop = output.scrollHeight;
+
+    if (ALERT_LINE.test(line)) {
+      alertsEl.textContent += line + '\n';
+      alertsEl.scrollTop = alertsEl.scrollHeight;
+    } else {
+      updateActivity(line);
+    }
+  }
+
+  function resetPanels() {
+    output.textContent = '';
+    alertsEl.textContent = '';
+    activity = { loginOk: 0, loginFail: 0, sudoOk: 0, sudoFail: 0, users: {} };
+    renderActivity();
+  }
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (source) {
+      source.close();
+    }
+
+    const file = form.file.value;
+
+    resetPanels();
+    setRunning(true);
+
+    const url = `/bunyan/run?file=${encodeURIComponent(file)}`;
+    source = new EventSource(url);
+
+    source.onmessage = (event) => handleLine(event.data);
+
+    source.addEventListener('done', () => {
+      setRunning(false);
+      source.close();
+    });
+
+    source.onerror = () => {
+      setRunning(false);
+      source.close();
+    };
+  });
+
+  stopBtn.addEventListener('click', () => {
+    stopBtn.disabled = true;
+    fetch('/bunyan/stop', { method: 'POST' }).finally(() => {
+      stopBtn.disabled = false;
+    });
+  });
+
+  clearBtn.addEventListener('click', resetPanels);
+
+  renderActivity();
+</script>
+</body>
+</html>
