@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HardHat — Rusty Tools</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <a class="back" href="/">← Rusty Tools</a>
+  <h1>⛑️ HardHat</h1>
+  <p>Security config auditor — checks SSH config, accounts, sudoers, firewall status, SUID binaries, and sensitive file permissions.</p>
+</header>
+<main>
+  <form id="hardhat-form">
+    <p class="hint">No configuration needed — this audits fixed, well-known locations on this machine. Some checks (sudoers, shadow) only run when this dashboard itself is started with <code>sudo</code>.</p>
+    <div class="button-row">
+      <button type="submit" id="run-btn">Run Audit</button>
+      <button type="button" id="stop-btn" class="stop" hidden>Stop</button>
+      <button type="button" id="clear-btn" class="stop">Clear</button>
+    </div>
+  </form>
+  <div class="panels">
+    <div class="panel">
+      <h2>Summary</h2>
+      <pre id="summary" class="log-panel"></pre>
+    </div>
+    <div class="panel">
+      <h2>Findings</h2>
+      <pre id="findings" class="log-panel"></pre>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>Output</h2>
+    <pre id="output" class="log-panel"></pre>
+  </div>
+</main>
+<script src="/panel.js"></script>
+<script>
+  const form = document.getElementById('hardhat-form');
+  const output = document.getElementById('output');
+  const summaryEl = document.getElementById('summary');
+  const findingsEl = document.getElementById('findings');
+  const runBtn = document.getElementById('run-btn');
+  const stopBtn = document.getElementById('stop-btn');
+  const clearBtn = document.getElementById('clear-btn');
+  const FINDING_LINE = /^(PASS|WARN|FAIL|SKIP)\s+/;
+  const NOTABLE_LINE = /^(WARN|FAIL|SKIP)\s+/;
+  let source = null;
+
+  function setRunning(running) {
+    runBtn.disabled = running;
+    runBtn.textContent = running ? 'Running…' : 'Run Audit';
+    stopBtn.hidden = !running;
+  }
+
+  let counts = { PASS: 0, WARN: 0, FAIL: 0, SKIP: 0 };
+
+  function renderSummary() {
+    summaryEl.textContent =
+      `PASS: ${counts.PASS}\nWARN: ${counts.WARN}\nFAIL: ${counts.FAIL}\nSKIP: ${counts.SKIP}`;
+  }
+
+  function handleLine(line) {
+    appendLine(output, line);
+
+    const match = line.match(FINDING_LINE);
+    if (match) {
+      counts[match[1]]++;
+      renderSummary();
+    }
+
+    if (NOTABLE_LINE.test(line)) {
+      appendLine(findingsEl, line);
+    }
+  }
+
+  function resetPanels() {
+    clearPanel(output);
+    clearPanel(findingsEl);
+    counts = { PASS: 0, WARN: 0, FAIL: 0, SKIP: 0 };
+    renderSummary();
+  }
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (source) {
+      source.close();
+    }
+
+    resetPanels();
+    setRunning(true);
+
+    source = new EventSource('/hardhat/run');
+
+    source.onmessage = (event) => handleLine(event.data);
+
+    source.addEventListener('done', () => {
+      setRunning(false);
+      source.close();
+    });
+
+    source.onerror = () => {
+      setRunning(false);
+      source.close();
+    };
+  });
+
+  stopBtn.addEventListener('click', () => {
+    stopBtn.disabled = true;
+    fetch('/hardhat/stop', { method: 'POST' }).finally(() => {
+      stopBtn.disabled = false;
+    });
+  });
+
+  clearBtn.addEventListener('click', resetPanels);
+
+  renderSummary();
+</script>
+</body>
+</html>

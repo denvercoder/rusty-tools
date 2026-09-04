@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FeeFiFoFIM — Rusty Tools</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <a class="back" href="/">← Rusty Tools</a>
+  <h1>👣 FeeFiFoFIM</h1>
+  <p>File integrity monitor — baselines a directory and flags anything that's added, removed, or changed.</p>
+</header>
+<main>
+  <form id="fim-form">
+    <label>
+      Directory to monitor
+      <input type="text" name="path" placeholder="e.g. /etc" required>
+    </label>
+    <label>
+      Baseline file
+      <span class="hint">Optional — leave blank to use a baseline auto-named after the directory, stored alongside this tool.</span>
+      <input type="text" name="baseline" placeholder="e.g. fim-baseline.json">
+    </label>
+    <label>
+      Watch interval (seconds)
+      <span class="hint">Optional — leave blank for a single one-shot check</span>
+      <input type="number" name="watch" min="1" placeholder="e.g. 30">
+    </label>
+    <div class="button-row">
+      <button type="submit" id="init-btn" data-action="init">Create/Update Baseline</button>
+      <button type="submit" id="check-btn" data-action="check">Check</button>
+      <button type="button" id="stop-btn" class="stop" hidden>Stop</button>
+      <button type="button" id="clear-btn" class="stop">Clear</button>
+    </div>
+  </form>
+  <div class="panel">
+    <h2>Alerts</h2>
+    <pre id="alerts" class="log-panel"></pre>
+  </div>
+  <div class="panel">
+    <h2>Output</h2>
+    <pre id="output" class="log-panel"></pre>
+  </div>
+</main>
+<script src="/panel.js"></script>
+<script>
+  const form = document.getElementById('fim-form');
+  const output = document.getElementById('output');
+  const alertsEl = document.getElementById('alerts');
+  const initBtn = document.getElementById('init-btn');
+  const checkBtn = document.getElementById('check-btn');
+  const stopBtn = document.getElementById('stop-btn');
+  const clearBtn = document.getElementById('clear-btn');
+  const CHANGE_LINE = /^(ADDED|REMOVED|MODIFIED)\s+/;
+  let source = null;
+
+  function setRunning(running) {
+    initBtn.disabled = running;
+    checkBtn.disabled = running;
+    stopBtn.hidden = !running;
+  }
+
+  function handleLine(line) {
+    appendLine(output, line);
+
+    if (CHANGE_LINE.test(line)) {
+      appendLine(alertsEl, line);
+    }
+  }
+
+  function resetPanels() {
+    clearPanel(output);
+    clearPanel(alertsEl);
+  }
+
+  function start(action) {
+    if (source) {
+      source.close();
+    }
+
+    const path = form.path.value;
+    const baseline = form.baseline.value;
+    const watch = action === 'check' ? form.watch.value : '';
+
+    resetPanels();
+    setRunning(true);
+
+    const url = `/feefifofim/run?path=${encodeURIComponent(path)}`
+      + `&baseline=${encodeURIComponent(baseline)}`
+      + `&init=${action === 'init' ? '1' : '0'}`
+      + `&watch=${encodeURIComponent(watch)}`;
+    source = new EventSource(url);
+
+    source.onmessage = (event) => handleLine(event.data);
+
+    source.addEventListener('done', () => {
+      setRunning(false);
+      source.close();
+    });
+
+    source.onerror = () => {
+      setRunning(false);
+      source.close();
+    };
+  }
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const action = event.submitter ? event.submitter.dataset.action : 'check';
+    start(action);
+  });
+
+  stopBtn.addEventListener('click', () => {
+    stopBtn.disabled = true;
+    fetch('/feefifofim/stop', { method: 'POST' }).finally(() => {
+      stopBtn.disabled = false;
+    });
+  });
+
+  clearBtn.addEventListener('click', resetPanels);
+</script>
+</body>
+</html>

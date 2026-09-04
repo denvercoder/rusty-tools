@@ -9,7 +9,7 @@
 <body>
 <header>
   <a class="back" href="/">← Rusty Tools</a>
-  <h1>Portofino</h1>
+  <h1>🔍 Portofino</h1>
   <p>Multithreaded TCP port scanner.</p>
 </header>
 <main>
@@ -44,6 +44,7 @@
     </div>
   </div>
 </main>
+<script src="/panel.js"></script>
 <script>
   const form = document.getElementById('scan-form');
   const output = document.getElementById('output');
@@ -68,15 +69,14 @@
   let hostsWithOpens = new Set();
 
   function resetPanels() {
-    output.textContent = '';
-    openPorts.textContent = '';
+    clearPanel(output);
+    clearPanel(openPorts);
     currentHost = form.target.value.trim();
     hostsWithOpens = new Set();
   }
 
   function handleLine(line) {
-    output.textContent += line + '\n';
-    output.scrollTop = output.scrollHeight;
+    appendLine(output, line);
 
     if (HOST_LINE.test(line)) {
       currentHost = line;
@@ -85,11 +85,10 @@
 
     if (OPEN_PORT_LINE.test(line)) {
       if (!hostsWithOpens.has(currentHost)) {
-        openPorts.textContent += (hostsWithOpens.size > 0 ? '\n' : '') + currentHost + '\n';
+        appendLine(openPorts, currentHost);
         hostsWithOpens.add(currentHost);
       }
-      openPorts.textContent += line + '\n';
-      openPorts.scrollTop = openPorts.scrollHeight;
+      appendLine(openPorts, line);
     }
   }
 

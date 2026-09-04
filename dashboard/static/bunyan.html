@@ -9,7 +9,7 @@
 <body>
 <header>
   <a class="back" href="/">← Rusty Tools</a>
-  <h1>Bunyan</h1>
+  <h1>🪵 Bunyan</h1>
   <p>Systemd-journal auth log analyzer — watches sshd &amp; sudo activity for brute-force and compromise patterns.</p>
 </header>
 <main>
@@ -40,6 +40,7 @@
     <pre id="output" class="log-panel"></pre>
   </div>
 </main>
+<script src="/panel.js"></script>
 <script>
   const form = document.getElementById('bunyan-form');
   const output = document.getElementById('output');
@@ -100,20 +101,18 @@
   }
 
   function handleLine(line) {
-    output.textContent += line + '\n';
-    output.scrollTop = output.scrollHeight;
+    appendLine(output, line);
 
     if (ALERT_LINE.test(line)) {
-      alertsEl.textContent += line + '\n';
-      alertsEl.scrollTop = alertsEl.scrollHeight;
+      appendLine(alertsEl, line);
     } else {
       updateActivity(line);
     }
   }
 
   function resetPanels() {
-    output.textContent = '';
-    alertsEl.textContent = '';
+    clearPanel(output);
+    clearPanel(alertsEl);
     activity = { loginOk: 0, loginFail: 0, sudoOk: 0, sudoFail: 0, users: {} };
     renderActivity();
   }

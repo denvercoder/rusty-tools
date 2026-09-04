@@ -43,6 +43,7 @@ async fn main() {
     let app = Router::new()
         .route("/", get(index))
         .route("/style.css", get(style))
+        .route("/panel.js", get(panel_js))
         .route("/portofino", get(portofino_page))
         .route("/portofino/run", get(run_portofino))
         .route("/portofino/stop", post(stop_portofino))
@@ -56,6 +57,12 @@ async fn main() {
         .route("/bunyan", get(bunyan_page))
         .route("/bunyan/run", get(run_bunyan))
         .route("/bunyan/stop", post(stop_bunyan))
+        .route("/feefifofim", get(fim_page))
+        .route("/feefifofim/run", get(run_fim))
+        .route("/feefifofim/stop", post(stop_fim))
+        .route("/hardhat", get(hardhat_page))
+        .route("/hardhat/run", get(run_hardhat))
+        .route("/hardhat/stop", post(stop_hardhat))
         .with_state(run_state);
 
     let listener = tokio::net::TcpListener::bind(BIND_ADDR).await.unwrap();
@@ -77,6 +84,13 @@ async fn style() -> impl IntoResponse {
     )
 }
 
+async fn panel_js() -> impl IntoResponse {
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/javascript")],
+        include_str!("../static/panel.js"),
+    )
+}
+
 async fn portofino_page() -> Html<&'static str> {
     Html(include_str!("../static/portofino.html"))
 }
@@ -91,6 +105,14 @@ async fn honey_page() -> Html<&'static str> {
 
 async fn bunyan_page() -> Html<&'static str> {
     Html(include_str!("../static/bunyan.html"))
+}
+
+async fn fim_page() -> Html<&'static str> {
+    Html(include_str!("../static/feefifofim.html"))
+}
+
+async fn hardhat_page() -> Html<&'static str> {
+    Html(include_str!("../static/hardhat.html"))
 }
 
 /// Absolute path to a sibling crate directory, resolved at compile time from
@@ -366,6 +388,59 @@ async fn run_bunyan(
 
 async fn stop_bunyan(State(run_state): State<RunState>) -> impl IntoResponse {
     stop_tool(run_state, "bunyan")
+}
+
+async fn run_fim(
+    State(run_state): State<RunState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let non_empty = |key: &str| params.get(key).map(|v| v.trim()).filter(|v| !v.is_empty());
+
+    let path = non_empty("path").unwrap_or_default().to_string();
+
+    let baseline = match non_empty("baseline") {
+        Some(baseline) => baseline.to_string(),
+        None => {
+            let sanitized = path.replace('/', "_");
+            crate_dir("FeeFiFoFIM")
+                .join("baselines")
+                .join(format!("{}.json", sanitized))
+                .to_string_lossy()
+                .into_owned()
+        }
+    };
+
+    let mut args = vec![path, "--baseline".to_string(), baseline];
+
+    if params.get("init").map(String::as_str) == Some("1") {
+        args.push("--init".to_string());
+    }
+    if let Some(watch) = non_empty("watch") {
+        args.push("--watch".to_string());
+        args.push(watch.to_string());
+    }
+
+    run_tool(
+        run_state,
+        "feefifofim",
+        "FeeFiFoFIM",
+        crate_dir("FeeFiFoFIM"),
+        crate_binary("FeeFiFoFIM"),
+        args,
+    )
+    .await
+}
+
+async fn stop_fim(State(run_state): State<RunState>) -> impl IntoResponse {
+    stop_tool(run_state, "feefifofim")
+}
+
+async fn run_hardhat(State(run_state): State<RunState>) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    run_tool(run_state, "hardhat", "HardHat", crate_dir("HardHat"), crate_binary("HardHat"), Vec::new()).await
+}
+
+async fn stop_hardhat(State(run_state): State<RunState>) -> impl IntoResponse {
+    stop_tool(run_state, "hardhat")
 }
 
 /// Network interface names, read straight from `/sys/class/net` (no

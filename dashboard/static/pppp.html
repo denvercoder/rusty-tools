@@ -9,7 +9,7 @@
 <body>
 <header>
   <a class="back" href="/">← Rusty Tools</a>
-  <h1>PPPP</h1>
+  <h1>📡 PPPP</h1>
   <p>PickAPeckOfPacketParsers — live packet capture &amp; parsing.</p>
 </header>
 <main>
@@ -66,6 +66,7 @@
     <pre id="output" class="log-panel"></pre>
   </div>
 </main>
+<script src="/panel.js"></script>
 <script>
   const form = document.getElementById('capture-form');
   const interfaceSelect = document.getElementById('interface-select');
@@ -130,20 +131,18 @@
   }
 
   function handleLine(line) {
-    output.textContent += line + '\n';
-    output.scrollTop = output.scrollHeight;
+    appendLine(output, line);
 
     if (ALERT_LINE.test(line)) {
-      alertsEl.textContent += line + '\n';
-      alertsEl.scrollTop = alertsEl.scrollHeight;
+      appendLine(alertsEl, line);
     } else {
       updateStats(line);
     }
   }
 
   function resetPanels() {
-    output.textContent = '';
-    alertsEl.textContent = '';
+    clearPanel(output);
+    clearPanel(alertsEl);
     stats = { protocols: {}, hosts: {}, ports: {} };
     renderStats();
   }

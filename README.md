@@ -15,6 +15,8 @@ Rusty Tools/
   PickAPeckOfPacketParsers/  Live packet capture & parsing (aka "4P")
   OneForTheHoney/            Decoy-service honeypot listener
   Bunyan/                    Systemd-journal auth log analyzer
+  FeeFiFoFIM/                File integrity monitor
+  HardHat/                   Security config auditor
   dashboard/                 Local web UI for the tools above
 ```
 
@@ -37,6 +39,8 @@ cargo run -p Portofino -- --help
 cargo run -p PickAPeckOfPacketParsers -- --help
 cargo run -p OneForTheHoney -- --help
 cargo run -p Bunyan -- --help
+cargo run -p FeeFiFoFIM -- --help
+cargo run -p HardHat
 ```
 
 Portofino is also this workspace's default member, so a bare `cargo run` (or `cargo run --release`) from this directory goes straight to it — and its first prompt lets you pick `[C]ommand Line` (its own interactive wizard) or `[I]nteractive` (which launches the web dashboard below). So in practice, that one command is the entry point into everything.
@@ -229,6 +233,72 @@ Output line prefixes:
 | `LOGIN` | An sshd login attempt — `ok` (with method) or `fail` (tagged `[invalid user]` when the username itself doesn't exist) |
 | `SUDO` | A sudo command execution (`invoking user -> target user  command`) or a sudo auth failure |
 | `ALERT` | 5+ failed SSH logins from one source within 60s (brute force), or a successful login from a source with 3+ recent failures (possible compromised credential) |
+
+## FeeFiFoFIM — file integrity monitor
+
+Baselines a directory's contents (a SHA-256 hash of every file), then checks it again later and reports anything added, removed, or changed. Classic host-based integrity monitoring — pairs with Bunyan as the toolkit's second host-based (rather than network-based) detection skill.
+
+### No privileges needed
+
+Like Bunyan, this is plain file I/O — no `sudo` or `setcap` required.
+
+### Three modes
+
+```
+# Create (or refresh) a baseline for a directory
+./target/release/FeeFiFoFIM /etc --init
+
+# One-shot check against that baseline
+./target/release/FeeFiFoFIM /etc
+
+# Keep checking every 30 seconds, printing only newly-detected changes
+./target/release/FeeFiFoFIM /etc --watch 30
+```
+
+`--baseline <file>` overrides where the baseline is stored/read (default: `fim-baseline.json` in the current directory) — keep it outside the directory being monitored, or the baseline file itself will show up as a change on the next run. Through the dashboard, leaving the baseline field blank auto-names one after the monitored path and stores it alongside the tool, so repeated runs against the same directory stay consistent without you having to track a file path yourself.
+
+`--watch` re-checks against the *original* baseline on every tick, but only prints changes that are new since the previous tick — so an ongoing difference doesn't get reprinted forever. A `.git` directory (if present) and any symlinks in the monitored tree are skipped automatically.
+
+Through the dashboard: click the **FeeFiFoFIM** card, set a directory, and use **Create/Update Baseline** or **Check** (with an optional watch interval).
+
+Output line prefixes:
+
+| Prefix | Meaning |
+|---|---|
+| `ADDED` | A file exists now that wasn't in the baseline |
+| `REMOVED` | A file in the baseline no longer exists |
+| `MODIFIED` | A file's content hash no longer matches the baseline |
+
+There's no separate `ALERT` line here — unlike the other tools, every line above already *is* the alert.
+
+## HardHat — security config auditor
+
+A proactive posture check, unlike every other tool here — it reads local system configuration once and reports hardening gaps, rather than watching for events over time. Checks SSH config, `/etc/passwd` for unexpected UID-0 accounts, firewall service status, unusual setuid binaries, and a watchlist of sensitive files for world-writable permissions — plus, when run as root, sudoers `NOPASSWD: ALL` rules and `/etc/shadow` for empty-password accounts.
+
+### Privileges: more checks unlock with `sudo`
+
+This one has a different privilege story than the rest of the toolkit. Bunyan and FeeFiFoFIM never need privilege; 4P and OneForTheHoney need it for everything. HardHat sits in between: it runs fully unprivileged and still produces real findings (SSH config, firewall presence, account anomalies, SUID audit, file permissions), but two checks — sudoers and shadow — need root to read their target files at all, and print as `SKIP` (not a failure) when they can't.
+
+```
+# Unprivileged — most checks run, sudoers/shadow show as SKIP
+./target/release/HardHat
+
+# Full audit, including sudoers and shadow
+sudo ./target/release/HardHat
+```
+
+**Dashboard note:** the dashboard always runs tools as your normal user, by design, and never elevates — so the sudoers and shadow checks will always show as skipped there. Run the CLI directly with `sudo` for the full audit.
+
+Output line prefixes:
+
+| Prefix | Meaning |
+|---|---|
+| `PASS` | The check found nothing concerning |
+| `WARN` | Worth a look, but not necessarily wrong (e.g. password auth enabled, an unusual setuid binary) |
+| `FAIL` | A clear hardening gap (e.g. `PermitRootLogin yes`, a world-writable `/etc/passwd`, an empty-password account) |
+| `SKIP` | The check needs root and this run doesn't have it |
+
+There's no separate `ALERT` line here either — same reasoning as FeeFiFoFIM: `WARN`/`FAIL`/`SKIP` already communicate what matters directly.
 
 ## dashboard — web UI
 
