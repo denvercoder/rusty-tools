@@ -42,13 +42,7 @@ fn print_change(change: &Change) {
 }
 
 fn run_init(path: &PathBuf, baseline_path: &PathBuf) {
-    let snapshot = match scan::scan(path) {
-        Ok(snapshot) => snapshot,
-        Err(err) => {
-            println!("Failed to scan {}: {}", path.display(), err);
-            std::process::exit(1);
-        }
-    };
+    let snapshot = scan::scan(path);
 
     let count = snapshot.len();
     if let Err(err) = baseline::save(baseline_path, &snapshot) {
@@ -60,13 +54,7 @@ fn run_init(path: &PathBuf, baseline_path: &PathBuf) {
 }
 
 fn run_check_once(path: &PathBuf, baseline_snapshot: &scan::Snapshot) -> Vec<Change> {
-    let current = match scan::scan(path) {
-        Ok(current) => current,
-        Err(err) => {
-            println!("Failed to scan {}: {}", path.display(), err);
-            std::process::exit(1);
-        }
-    };
+    let current = scan::scan(path);
     baseline::diff(baseline_snapshot, &current)
 }
 

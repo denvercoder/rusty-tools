@@ -20,17 +20,43 @@ pub type Snapshot = BTreeMap<String, FileRecord>;
 /// skipped (avoids following cycles or links outside the tree), and any
 /// directory literally named `.git` is skipped (its object store churns
 /// constantly and isn't meaningful integrity signal for this tool).
-pub fn scan(root: &Path) -> io::Result<Snapshot> {
+///
+/// A restricted subdirectory or file (e.g. `/etc/sudoers.d/`, unreadable to
+/// a non-root user) is skipped with a printed warning rather than aborting
+/// the whole scan — one inaccessible corner of the tree shouldn't stop
+/// everything else in it from being baselined/checked.
+pub fn scan(root: &Path) -> Snapshot {
     let mut snapshot = Snapshot::new();
-    walk(root, root, &mut snapshot)?;
-    Ok(snapshot)
+    walk(root, root, &mut snapshot);
+    snapshot
 }
 
-fn walk(root: &Path, dir: &Path, out: &mut Snapshot) -> io::Result<()> {
-    for entry in fs::read_dir(dir)? {
-        let entry = entry?;
-        let file_type = entry.file_type()?;
+fn walk(root: &Path, dir: &Path, out: &mut Snapshot) {
+    let entries = match fs::read_dir(dir) {
+        Ok(entries) => entries,
+        Err(err) => {
+            eprintln!("Skipping {}: {}", dir.display(), err);
+            return;
+        }
+    };
+
+    for entry in entries {
+        let entry = match entry {
+            Ok(entry) => entry,
+            Err(err) => {
+                eprintln!("Skipping an entry in {}: {}", dir.display(), err);
+                continue;
+            }
+        };
         let path = entry.path();
+
+        let file_type = match entry.file_type() {
+            Ok(file_type) => file_type,
+            Err(err) => {
+                eprintln!("Skipping {}: {}", path.display(), err);
+                continue;
+            }
+        };
 
         if file_type.is_symlink() {
             continue;
@@ -40,19 +66,22 @@ fn walk(root: &Path, dir: &Path, out: &mut Snapshot) -> io::Result<()> {
             if entry.file_name() == ".git" {
                 continue;
             }
-            walk(root, &path, out)?;
+            walk(root, &path, out);
         } else if file_type.is_file() {
-            let hash = hash_file(&path)?;
-            let size = entry.metadata()?.len();
-            let rel = path
-                .strip_prefix(root)
-                .unwrap_or(&path)
-                .to_string_lossy()
-                .replace('\\', "/");
-            out.insert(rel, FileRecord { hash, size });
+            match hash_file(&path) {
+                Ok(hash) => {
+                    let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+                    let rel = path
+                        .strip_prefix(root)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .replace('\\', "/");
+                    out.insert(rel, FileRecord { hash, size });
+                }
+                Err(err) => eprintln!("Skipping {}: {}", path.display(), err),
+            }
         }
     }
-    Ok(())
 }
 
 fn hash_file(path: &Path) -> io::Result<String> {
@@ -66,7 +95,7 @@ fn hash_file(path: &Path) -> io::Result<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::os::unix::fs::symlink;
+    use std::os::unix::fs::{symlink, PermissionsExt};
 
     /// Creates a unique scratch directory under the system temp dir, scoped
     /// to this test process, and removes it on drop.
@@ -117,7 +146,7 @@ mod tests {
 
         symlink(dir.0.join("real.txt"), dir.0.join("link.txt")).unwrap();
 
-        let snapshot = scan(&dir.0).unwrap();
+        let snapshot = scan(&dir.0);
         assert_eq!(snapshot.len(), 1);
         assert!(snapshot.contains_key("real.txt"));
     }
@@ -129,7 +158,26 @@ mod tests {
         fs::create_dir_all(&nested).unwrap();
         fs::write(nested.join("deep.txt"), b"nested content").unwrap();
 
-        let snapshot = scan(&dir.0).unwrap();
+        let snapshot = scan(&dir.0);
         assert!(snapshot.contains_key("a/b/deep.txt"));
+    }
+
+    #[test]
+    fn unreadable_subdirectory_is_skipped_not_fatal() {
+        let dir = TempDir::new("scan-unreadable");
+        fs::write(dir.0.join("visible.txt"), b"kept").unwrap();
+
+        let locked = dir.0.join("locked");
+        fs::create_dir_all(&locked).unwrap();
+        fs::write(locked.join("secret.txt"), b"hidden").unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+
+        let snapshot = scan(&dir.0);
+
+        // Restore permissions so TempDir's Drop can actually remove it.
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+
+        assert!(snapshot.contains_key("visible.txt"));
+        assert!(!snapshot.keys().any(|k| k.starts_with("locked/")));
     }
 }
