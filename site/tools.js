@@ -90,11 +90,20 @@ function localCta() {
   const h = document.createElement('h2');
   h.textContent = '🔒 Runs locally only';
   const p = document.createElement('p');
-  p.textContent = 'This tool is part of the Rusty Toolz dashboard, which binds to localhost and never accepts remote connections — several tools scan networks, capture packets, or handle live malware. To use it, clone the repo and run the dashboard on your own machine:';
-  const code = codeBlock(['git clone ' + REPO_URL, 'cd rusty-tools', 'cargo run -p dashboard --release']);
+  p.textContent = 'This tool is part of the Rusty Toolz dashboard, which binds to localhost and never accepts remote connections — several tools scan networks, capture packets, or handle live malware. To use it, clone the repo and run the installer on your own machine:';
+  const code = codeBlock([
+    'git clone ' + REPO_URL,
+    'cd rusty-tools',
+    '',
+    '# Linux / macOS:',
+    './install.sh',
+    '',
+    '# Windows (PowerShell):',
+    'powershell -ExecutionPolicy Bypass -File .\\install.ps1',
+  ]);
   const p2 = document.createElement('p');
   p2.style.margin = '0';
-  p2.textContent = 'Then open http://localhost (or http://rustytoolz.local) and pick this tool. (Several tools are Linux-only.)';
+  p2.textContent = 'The installer checks for prerequisites (Rust and the platform build tools) and installs only what’s missing, optionally adds a rustytoolz.local alias, builds, and opens the dashboard at http://localhost. (Several tools are Linux-only.)';
   box.append(h, p, code, p2);
   return box;
 }
