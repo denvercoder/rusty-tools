@@ -1,0 +1,5 @@
+# Normalize text to LF in the repository. Shell scripts are forced to LF on
+# checkout too, so install.sh / run.sh always run on Linux & macOS regardless of
+# a contributor's core.autocrlf setting.
+* text=auto
+*.sh text eol=lf
