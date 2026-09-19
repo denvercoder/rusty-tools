@@ -196,9 +196,25 @@ function renderTool(root) {
   }
 }
 
+function renderFooter() {
+  const footer = document.createElement('footer');
+  footer.className = 'site-footer';
+  const repo = document.createElement('a');
+  repo.href = 'https://github.com/denvercoder/rusty-tools';
+  repo.target = '_blank';
+  repo.rel = 'noopener';
+  repo.textContent = 'github.com/denvercoder/rusty-tools';
+  const email = document.createElement('a');
+  email.href = 'mailto:support@rustytoolz.com';
+  email.textContent = 'support@rustytoolz.com';
+  footer.append(repo, email);
+  document.body.appendChild(footer);
+}
+
 document.addEventListener('DOMContentLoaded', () => {
   const grid = document.getElementById('grid');
   const detail = document.getElementById('detail');
   if (grid) renderIndex(grid);
   if (detail) renderTool(detail);
+  renderFooter();
 });

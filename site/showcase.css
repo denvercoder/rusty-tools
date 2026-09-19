@@ -143,6 +143,29 @@
   color: var(--muted);
 }
 
+/* Footer: repo link + support email, on every page. */
+.site-footer {
+  max-width: 880px;
+  margin: 2.5rem auto 2rem;
+  padding: 1.5rem;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+}
+
+.site-footer a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+.site-footer a:hover {
+  text-decoration: underline;
+}
+
 /* Disabled preview button, so a tool page can show the control that would exist. */
 button.disabled-preview {
   align-self: auto;
