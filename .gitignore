@@ -3,3 +3,7 @@
 /PickAPeckOfPacketParsers/captures/
 /FeeFiFoFIM/baselines/
 fim-baseline.json
+# FluShot's encrypted sample vault + its key — must never be committed.
+/FluShot/vault/
+# Decrypted plaintext output (live malware) — must never be committed.
+/FluShot/decrypted/

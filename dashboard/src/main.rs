@@ -25,10 +25,12 @@ use tokio::{
 };
 use tokio_stream::{wrappers::UnboundedReceiverStream, Stream, StreamExt};
 
-/// Local-only: never bind this to anything but loopback. This launches
-/// active network scans/captures on demand — it must not be reachable off
-/// this machine.
-const BIND_ADDR: &str = "127.0.0.1:7878";
+/// Local-only: the dashboard ALWAYS binds loopback (127.0.0.1) and can never be
+/// pointed at a public interface — it launches active scans/captures on demand,
+/// so it must not be reachable off this machine. Only the PORT is configurable,
+/// via the `RUSTYTOOLZ_PORT` env var (default 80, so `http://rustytoolz.local`
+/// works with a hosts alias).
+const DEFAULT_PORT: u16 = 80;
 
 /// The stop signal for each tool's currently running job, if any, keyed by
 /// tool name ("portofino", "pppp", ...). Only one job per tool runs at a
@@ -63,11 +65,37 @@ async fn main() {
         .route("/hardhat", get(hardhat_page))
         .route("/hardhat/run", get(run_hardhat))
         .route("/hardhat/stop", post(stop_hardhat))
+        .route("/fafo", get(fafo_page))
+        .route("/fafo/run", get(run_fafo))
+        .route("/fafo/stop", post(stop_fafo))
+        .route("/flushot", get(flushot_page))
+        .route("/flushot/run", get(run_flushot))
+        .route("/flushot/stop", post(stop_flushot))
+        .route("/flushot/info", get(flushot_info))
+        .route("/flushot/decrypt", get(run_flushot_decrypt))
+        .route("/humptydumpty", get(humptydumpty_page))
+        .route("/humptydumpty/run", get(run_humptydumpty))
+        .route("/humptydumpty/stop", post(stop_humptydumpty))
         .with_state(run_state);
 
-    let listener = tokio::net::TcpListener::bind(BIND_ADDR).await.unwrap();
-    let url = format!("http://{}/", BIND_ADDR);
-    println!("Rusty Tools dashboard running at {url}");
+    let port: u16 = std::env::var("RUSTYTOOLZ_PORT")
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(DEFAULT_PORT);
+    // Host is fixed to loopback on purpose — only the port is configurable.
+    let addr = format!("127.0.0.1:{port}");
+
+    let listener = match tokio::net::TcpListener::bind(&addr).await {
+        Ok(listener) => listener,
+        Err(e) => {
+            eprintln!("Could not bind {addr}: {e}");
+            eprintln!("Port 80 needs privilege on Linux/macOS (the Linux installer grants it via setcap) and must be free on Windows.");
+            eprintln!("To use a high port instead:  RUSTYTOOLZ_PORT=7878 cargo run -p dashboard --release");
+            std::process::exit(1);
+        }
+    };
+    let url = format!("http://{addr}/");
+    println!("Rusty Toolz dashboard running at {url}");
     let _ = webbrowser::open(&url);
 
     axum::serve(listener, app).await.unwrap();
@@ -115,6 +143,18 @@ async fn hardhat_page() -> Html<&'static str> {
     Html(include_str!("../static/hardhat.html"))
 }
 
+async fn fafo_page() -> Html<&'static str> {
+    Html(include_str!("../static/fafo.html"))
+}
+
+async fn flushot_page() -> Html<&'static str> {
+    Html(include_str!("../static/flushot.html"))
+}
+
+async fn humptydumpty_page() -> Html<&'static str> {
+    Html(include_str!("../static/humptydumpty.html"))
+}
+
 /// Absolute path to a sibling crate directory, resolved at compile time from
 /// this crate's own manifest dir so it works regardless of the directory the
 /// dashboard binary happens to be launched from.
@@ -125,9 +165,11 @@ fn crate_dir(name: &str) -> PathBuf {
 /// The compiled binary for a sibling crate, shared at the workspace root's
 /// `target/` (not `<crate>/target/`, since each is a workspace member).
 fn crate_binary(name: &str) -> PathBuf {
+    // EXE_SUFFIX is ".exe" on Windows and "" everywhere else, so the same code
+    // resolves the built binary on any platform (FAFO is cross-platform).
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../target/release")
-        .join(name)
+        .join(format!("{name}{}", std::env::consts::EXE_SUFFIX))
 }
 
 /// Builds `crate_dir/crate_binary` quietly, then runs it with `args`,
@@ -146,7 +188,16 @@ async fn run_tool(
     let (tx, rx) = mpsc::unbounded_channel::<String>();
 
     let stop = Arc::new(Notify::new());
-    run_state.lock().unwrap().insert(tool_key, stop.clone());
+    // If a run for this tool is already active — e.g. started from another
+    // browser tab, or the dashboard's own auto-opened window — signal it to
+    // stop before we overwrite its slot. Otherwise that first process is
+    // orphaned: the slot now points at the new run, so the Stop button can
+    // never reach the old one and it keeps running forever. This keeps exactly
+    // one live process per tool, which matters most for FAFO (it runs until
+    // stopped, unlike the tools that finish on their own).
+    if let Some(prev) = run_state.lock().unwrap().insert(tool_key, stop.clone()) {
+        prev.notify_one();
+    }
 
     tokio::spawn(async move {
         // Build quietly first — the UI already shows the parameters the user
@@ -441,6 +492,223 @@ async fn run_hardhat(State(run_state): State<RunState>) -> Sse<impl Stream<Item 
 
 async fn stop_hardhat(State(run_state): State<RunState>) -> impl IntoResponse {
     stop_tool(run_state, "hardhat")
+}
+
+async fn run_fafo(
+    State(run_state): State<RunState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let non_empty = |key: &str| params.get(key).map(|v| v.trim()).filter(|v| !v.is_empty());
+
+    let mut args = Vec::new();
+
+    // Extra targets (e.g. a host-only gateway IP), separated by commas or
+    // whitespace. Empty means "use FAFO's built-in public-DNS defaults".
+    if let Some(targets) = non_empty("targets") {
+        for target in targets.split(|c: char| c == ',' || c.is_whitespace()).filter(|s| !s.is_empty()) {
+            args.push("--target".to_string());
+            args.push(target.to_string());
+        }
+    }
+    if let Some(interval) = non_empty("interval_ms") {
+        args.push("--interval-ms".to_string());
+        args.push(interval.to_string());
+    }
+    if let Some(timeout) = non_empty("timeout_ms") {
+        args.push("--timeout-ms".to_string());
+        args.push(timeout.to_string());
+    }
+    // The dashboard already shows its own modal + browser notification, so let
+    // the user suppress the redundant native Windows popup if they want.
+    if params.get("no_popup").map(String::as_str) == Some("1") {
+        args.push("--no-popup".to_string());
+    }
+
+    run_tool(
+        run_state,
+        "fafo",
+        "FuckAroundFindOut",
+        crate_dir("FuckAroundFindOut"),
+        crate_binary("FuckAroundFindOut"),
+        args,
+    )
+    .await
+}
+
+async fn stop_fafo(State(run_state): State<RunState>) -> impl IntoResponse {
+    stop_tool(run_state, "fafo")
+}
+
+async fn run_flushot(
+    State(run_state): State<RunState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    // The vault lives beside the tool, in a gitignored dir. All blobs (and the
+    // key file) land here.
+    let vault = flushot_vault_dir();
+
+    let mut args = vec![
+        "--vault".to_string(),
+        vault.to_string_lossy().into_owned(),
+        "fetch".to_string(),
+    ];
+    // URLs arrive newline-separated in a single param (avoids repeated-key
+    // handling, and keeps each URL properly encoded). Blank lines are dropped.
+    if let Some(urls) = params.get("urls") {
+        for url in urls.split('\n').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            args.push(url.to_string());
+        }
+    }
+
+    run_tool(
+        run_state,
+        "flushot",
+        "FluShot",
+        crate_dir("FluShot"),
+        crate_binary("FluShot"),
+        args,
+    )
+    .await
+}
+
+async fn stop_flushot(State(run_state): State<RunState>) -> impl IntoResponse {
+    stop_tool(run_state, "flushot")
+}
+
+async fn run_humptydumpty(
+    State(run_state): State<RunState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let mut args = Vec::new();
+    if let Some(file) = params.get("file").map(|v| v.trim()).filter(|v| !v.is_empty()) {
+        args.push(file.to_string());
+    }
+    if params.get("strings").map(String::as_str) == Some("1") {
+        args.push("--strings".to_string());
+    }
+
+    run_tool(
+        run_state,
+        "humptydumpty",
+        "HumptyDumpty",
+        crate_dir("HumptyDumpty"),
+        crate_binary("HumptyDumpty"),
+        args,
+    )
+    .await
+}
+
+async fn stop_humptydumpty(State(run_state): State<RunState>) -> impl IntoResponse {
+    stop_tool(run_state, "humptydumpty")
+}
+
+/// FluShot's vault directory, as a clean absolute path (no `..` segment) for
+/// display and for handing to the tool.
+fn flushot_vault_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(|root| root.join("FluShot").join("vault"))
+        .unwrap_or_else(|| crate_dir("FluShot").join("vault"))
+}
+
+/// Where decrypted plaintext is written by default. Live malware lands here, so
+/// this is only meant to be used inside the analysis VM.
+fn flushot_decrypted_dir() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .map(|root| root.join("FluShot").join("decrypted"))
+        .unwrap_or_else(|| crate_dir("FluShot").join("decrypted"))
+}
+
+/// Minimal JSON string escaping — enough for Windows paths and filenames.
+fn json_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str("\\\\"),
+            '"' => out.push_str("\\\""),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// One call the FluShot page uses to fill the vault/output banners and the
+/// decrypt tab's list of available blobs.
+async fn flushot_info() -> impl IntoResponse {
+    let vault = flushot_vault_dir();
+    let decrypted = flushot_decrypted_dir();
+
+    let mut blobs: Vec<String> = Vec::new();
+    if let Ok(entries) = std::fs::read_dir(&vault) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "enc") {
+                if let Some(name) = path.file_name() {
+                    blobs.push(name.to_string_lossy().into_owned());
+                }
+            }
+        }
+    }
+    blobs.sort();
+
+    let blobs_json = blobs
+        .iter()
+        .map(|b| format!("\"{}\"", json_escape(b)))
+        .collect::<Vec<_>>()
+        .join(",");
+    let body = format!(
+        "{{\"vault\":\"{}\",\"decrypted\":\"{}\",\"blobs\":[{}]}}",
+        json_escape(&vault.to_string_lossy()),
+        json_escape(&decrypted.to_string_lossy()),
+        blobs_json
+    );
+
+    ([(axum::http::header::CONTENT_TYPE, "application/json")], body)
+}
+
+async fn run_flushot_decrypt(
+    State(run_state): State<RunState>,
+    Query(params): Query<HashMap<String, String>>,
+) -> Sse<impl Stream<Item = Result<Event, Infallible>>> {
+    let vault = flushot_vault_dir();
+    let out = params
+        .get("out")
+        .map(|v| v.trim())
+        .filter(|v| !v.is_empty())
+        .map(PathBuf::from)
+        .unwrap_or_else(flushot_decrypted_dir);
+
+    let mut args = vec![
+        "--vault".to_string(),
+        vault.to_string_lossy().into_owned(),
+        "open".to_string(),
+    ];
+    // Blob filenames arrive newline-separated; join each to the vault, guarding
+    // against path traversal by keeping only the file-name component.
+    if let Some(blobs) = params.get("blobs") {
+        for blob in blobs.split('\n').map(|s| s.trim()).filter(|s| !s.is_empty()) {
+            if let Some(name) = std::path::Path::new(blob).file_name() {
+                args.push(vault.join(name).to_string_lossy().into_owned());
+            }
+        }
+    }
+    args.push("--out".to_string());
+    args.push(out.to_string_lossy().into_owned());
+
+    run_tool(
+        run_state,
+        "flushot",
+        "FluShot",
+        crate_dir("FluShot"),
+        crate_binary("FluShot"),
+        args,
+    )
+    .await
 }
 
 /// Network interface names, read straight from `/sys/class/net` (no

@@ -19,7 +19,7 @@ use std::{
 /// Portofino — a multithreaded TCP port scanner.
 ///
 /// Run with no arguments for an interactive wizard, or pass flags below for
-/// non-interactive/scriptable use (e.g. from the Rusty Tools dashboard).
+/// non-interactive/scriptable use (e.g. from the Rusty Toolz dashboard).
 #[derive(Parser)]
 #[command(name = "portofino", about = "A multithreaded TCP port scanner")]
 struct Cli {
@@ -336,13 +336,13 @@ fn prompt_launch_mode() -> LaunchMode {
     }
 }
 
-/// Starts the Rusty Tools web dashboard (a sibling crate) and blocks until
+/// Starts the Rusty Toolz web dashboard (a sibling crate) and blocks until
 /// it's stopped, so its own "listening on ..." message and auto-opened
 /// browser tab show up right in this same terminal session.
 fn launch_dashboard() {
     let dashboard_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../dashboard");
 
-    println!("Starting the Rusty Tools dashboard...");
+    println!("Starting the Rusty Toolz dashboard...");
 
     let status = process::Command::new("cargo")
         .args(["run", "--release"])

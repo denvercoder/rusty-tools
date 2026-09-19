@@ -1,0 +1,152 @@
+/* Static-showcase-only styles, layered on top of the copied dashboard style.css.
+   (style.css is a copy of dashboard/static/style.css — if that changes, re-copy.) */
+
+.showcase-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  max-width: 880px;
+  margin: 1.5rem auto 0;
+  padding: 1rem 1.15rem;
+  background: var(--accent-soft);
+  border: 1px solid var(--accent);
+  border-radius: 10px;
+  font-size: 0.9rem;
+}
+
+.showcase-banner .icon {
+  font-size: 1.2rem;
+  line-height: 1.3;
+}
+
+.showcase-banner strong {
+  color: var(--accent);
+}
+
+.showcase-banner code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+}
+
+/* Local-only call-to-action, shown big on each tool page. */
+.local-cta {
+  background: var(--panel);
+  border: 1px solid var(--accent);
+  border-left-width: 3px;
+  border-radius: 10px;
+  padding: 1.25rem 1.4rem;
+  margin: 0 0 1.75rem;
+}
+
+.local-cta h2 {
+  margin: 0 0 0.5rem;
+  font-size: 1.05rem;
+  color: var(--accent);
+}
+
+.local-cta p {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+}
+
+/* Code blocks for usage/instructions (mirrors the dashboard log-panel look). */
+.code {
+  background: var(--mono-bg);
+  color: var(--mono-text);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 0.9rem 1rem;
+  margin: 0 0 1.25rem;
+  overflow-x: auto;
+  white-space: pre;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.55;
+}
+
+.code .comment {
+  color: var(--muted);
+}
+
+/* Tool detail header */
+.detail-head {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin: 0 0 0.35rem;
+}
+
+.detail-head .tool-icon {
+  font-size: 1.6rem;
+  margin: 0;
+}
+
+.detail-head h1 {
+  margin: 0;
+  font-size: 1.5rem;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+
+.detail-head h1::before {
+  content: none;
+}
+
+.detail-group {
+  font-family: var(--font-mono);
+  font-size: 0.8rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 1.5rem;
+}
+
+.detail-blurb {
+  color: var(--text);
+  margin: 0 0 1.75rem;
+  max-width: 70ch;
+}
+
+.section-label {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin: 0 0 0.6rem;
+}
+
+/* Prefix reference table */
+.prefix-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 1.75rem;
+  font-size: 0.88rem;
+}
+
+.prefix-table td {
+  border-bottom: 1px solid var(--border);
+  padding: 0.5rem 0.6rem;
+  vertical-align: top;
+}
+
+.prefix-table td:first-child {
+  font-family: var(--font-mono);
+  font-weight: 600;
+  color: var(--accent);
+  white-space: nowrap;
+  width: 1%;
+}
+
+.prefix-table td:last-child {
+  color: var(--muted);
+}
+
+/* Disabled preview button, so a tool page can show the control that would exist. */
+button.disabled-preview {
+  align-self: auto;
+  opacity: 0.5;
+  cursor: not-allowed;
+  pointer-events: none;
+}

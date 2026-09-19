@@ -1,0 +1,17 @@
+[package]
+name = "FluShot"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# clap without default features to drop `color` (anstyle-wincon -> windows-sys),
+# keeping the crate buildable on the GNU toolchain too — same reasoning as FAFO.
+clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+# Authenticated encryption (AEAD). ChaCha20-Poly1305: fast without AES-NI,
+# constant-time, hard to misuse.
+chacha20poly1305 = "0.10"
+# CSPRNG for keys and nonces, straight from the OS.
+getrandom = "0.2"
+# Blocking HTTP client with bundled rustls TLS — does the download itself so the
+# browser (and its SmartScreen) is never involved.
+ureq = "2"

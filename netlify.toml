@@ -1,0 +1,6 @@
+# Netlify config for the Rusty Toolz static showcase.
+# There is no build step — the site under site/ is plain static HTML/CSS/JS.
+# The actual tools + dashboard backend only run locally (see site/ pages).
+
+[build]
+publish = "site"

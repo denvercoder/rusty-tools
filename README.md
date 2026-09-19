@@ -1,4 +1,4 @@
-# Rusty Tools
+# Rusty Toolz
 
 A local collection of Rust cybersecurity tools, sharing one Cargo workspace and one optional web dashboard. Every tool works two ways: directly on the command line for people comfortable there, or through a local, point-and-click web UI for people who aren't.
 
@@ -7,16 +7,51 @@ A local collection of Rust cybersecurity tools, sharing one Cargo workspace and 
 - The Rust toolchain (`cargo`)
 - Linux — several pieces are Linux-specific (packet capture via raw sockets, interface listing via `/sys/class/net`, granting capabilities via `setcap`)
 
+## Quickstart (fresh machine)
+
+Clone the repo, then run the installer for your OS. It checks for prerequisites and
+installs only what's missing (the Rust toolchain, and the platform's C/build tools —
+including the MSVC linker on Windows), optionally adds a `rustytoolz.local` hosts
+alias, builds, and launches the dashboard.
+
+**Linux / macOS:**
+
+```
+git clone https://github.com/denvercoder/rusty-tools.git
+cd rusty-tools
+chmod +x install.sh && ./install.sh
+```
+
+**Windows (PowerShell):**
+
+```
+git clone https://github.com/denvercoder/rusty-tools.git
+cd rusty-tools
+powershell -ExecutionPolicy Bypass -File .\install.ps1
+```
+
+Then open **http://rustytoolz.local** if you added the alias, or **http://localhost** — the
+dashboard binds port **80** on loopback by default, so no `:port` suffix is needed. (The host
+is always `127.0.0.1`; only the port is configurable, via `RUSTYTOOLZ_PORT` — set it to e.g.
+`7878` for a non-privileged port.) Several tools are Linux-only; the dashboard
+builds each tool on first click, so a wrong-OS tool simply fails when you open it
+rather than blocking the install. To change the alias, edit the variable at the top
+of the install script (e.g. `rustytoolz.test` if macOS's `.local`/mDNS resolution
+gives you trouble).
+
 ## Project layout
 
 ```
-Rusty Tools/
+Rusty Toolz/
   Portofino/                 Multithreaded TCP port scanner
   PickAPeckOfPacketParsers/  Live packet capture & parsing (aka "4P")
   OneForTheHoney/            Decoy-service honeypot listener
   Bunyan/                    Systemd-journal auth log analyzer
   FeeFiFoFIM/                File integrity monitor
   HardHat/                   Security config auditor
+  FuckAroundFindOut/         Network isolation canary (aka "FAFO")
+  FluShot/                   Encrypted sample vault
+  HumptyDumpty/              Static malware triage
   dashboard/                 Local web UI for the tools above
 ```
 
@@ -41,6 +76,9 @@ cargo run -p OneForTheHoney -- --help
 cargo run -p Bunyan -- --help
 cargo run -p FeeFiFoFIM -- --help
 cargo run -p HardHat
+cargo run -p FuckAroundFindOut -- --help
+cargo run -p FluShot -- --help
+cargo run -p HumptyDumpty -- --help
 ```
 
 Portofino is also this workspace's default member, so a bare `cargo run` (or `cargo run --release`) from this directory goes straight to it — and its first prompt lets you pick `[C]ommand Line` (its own interactive wizard) or `[I]nteractive` (which launches the web dashboard below). So in practice, that one command is the entry point into everything.
@@ -56,6 +94,8 @@ or double-click `dashboard/run.sh`. Both build and start a small local web serve
 ## Safety and scope
 
 This is a personal toolkit for testing systems and networks you own or are explicitly authorized to test. Portofino's scanning and 4P's packet capture are both active, and in 4P's case privileged — only point them at hosts/interfaces you have permission to examine. OneForTheHoney binds to every network interface by default, which means it will log connection attempts from **any** device that can reach this machine on that network — not just your own. Only run it on networks you own or are explicitly authorized to monitor.
+
+FAFO, FluShot, and HumptyDumpty are malware-analysis aids. FluShot deliberately stores samples as encrypted blobs so AV won't quarantine them — use it only for samples you're authorized to analyze, and only ever `open` (decrypt) them inside a disposable analysis VM, never on your host. HumptyDumpty only ever *reads* a sample (never runs it), but the file is still live malware, so triage it inside that same VM.
 
 ---
 
@@ -300,8 +340,197 @@ Output line prefixes:
 
 There's no separate `ALERT` line here either — same reasoning as FeeFiFoFIM: `WARN`/`FAIL`/`SKIP` already communicate what matters directly.
 
+## FluShot — encrypted sample vault
+
+Malware samples can't sit on disk as plaintext: AV scans files on write and
+quarantines anything it recognizes — often mid-download, before you can use them.
+FluShot never lets a recognizable byte hit the disk. It downloads samples *itself*
+(no browser, so no SmartScreen), encrypts them in memory, and writes only
+ciphertext; the resulting blob has a novel hash and noise contents, so neither
+content nor hash/reputation scanning has anything to bite. Decrypt them back only
+inside your analysis VM.
+
+### Cross-platform
+
+Like FAFO, FluShot is pure Rust with no OS-specific APIs, so it runs on Windows,
+Linux, or macOS — wherever you handle samples.
+
+### How it defeats the download block
+
+- **The tool downloads, not the browser** — no SmartScreen prompt, and the
+  plaintext never lands on disk for the on-write real-time scan.
+- **Output is a novel encrypted blob** — unknown hash and noise content, so both
+  hash/reputation and content scanning come up empty.
+- **Encrypting after a browser download is too late** — by then AV has already
+  quarantined it, which is why `fetch` does the download itself.
+
+### Encryption
+
+Keyfile-based ChaCha20-Poly1305 (authenticated). A 32-byte key file
+(`.flushot.key`) is generated in the vault on first use — no passphrase to type.
+To decrypt inside your VM, copy that key file into the VM's vault once. The
+original filename is stored *inside* the encrypted payload, so `open` restores it
+exactly while a blob on disk reveals nothing about what it holds.
+
+### Usage
+
+```
+# Download URL(s) straight into the vault as encrypted blobs
+cargo run -p FluShot -- fetch https://example.com/sample1 https://example.com/sample2
+
+# Encrypt file(s) you already have
+cargo run -p FluShot -- stash ./suspicious.bin
+
+# Decrypt blob(s) back out — run this INSIDE your analysis VM
+cargo run -p FluShot -- open vault/suspicious.bin.enc --out ./work
+
+# List the vault
+cargo run -p FluShot -- list
+
+# Point at a different vault directory (default: ./vault)
+cargo run -p FluShot -- --vault /path/to/vault list
+```
+
+Through the dashboard: the **FluShot** card has an **ENCRYPT** tab (paste sample
+URLs — a new box appears as you fill each in) and a **DECRYPT** tab (pick blobs
+from the vault to restore, with a loud reminder to only do that inside your VM).
+
+Output line prefixes:
+
+| Prefix | Meaning |
+|---|---|
+| `FETCH` | Started downloading a URL |
+| `SAVED` | A sample was encrypted into the vault |
+| `OPENED` | A blob was decrypted back to a file |
+| `BLOB` | A blob listed from the vault (`list`) |
+| `KEY` | A new vault key was generated — copy it into your VM to decrypt |
+| `FAIL` | A download, encrypt, or decrypt step failed |
+
+## FuckAroundFindOut (FAFO) — network isolation canary
+
+A tripwire for malware analysis. When you're reversing a sample you keep the VM's
+network disabled — but sometimes you enable it to pull a sample, and forgetting to
+re-disable it leaves your host exposed to whatever you're dissecting. FAFO runs
+inside the VM and, once per second, checks whether the outside world is reachable.
+As long as it isn't, it stays quiet (with a periodic heartbeat so you know it's
+alive). The instant it *is*, it prints a breach banner, an `ALERT` line every
+second, and rings the terminal bell — until you kill the connection.
+
+### How it decides "reachable"
+
+It attempts a **TCP connection** to a list of public DNS servers, not an ICMP ping:
+
+- **No privileges needed.** Raw ICMP sockets require root/admin; a normal TCP
+  `connect` does not — so FAFO runs as an ordinary user in any VM.
+- **A completed handshake is proof.** Getting a real SYN/ACK back from `8.8.8.8:53`
+  means you have genuine routable connectivity, not just a half-configured adapter.
+- **The probe never leaks.** Targets are numeric `ip:port`, so FAFO performs **no
+  DNS lookup of its own** (that would itself be outbound traffic). Any target that
+  isn't a literal `ip:port` is rejected, by design.
+
+Targets are probed **in parallel**, so a full sweep takes about one timeout no
+matter how many you list. Defaults cover Google, Cloudflare, and Quad9 DNS, plus a
+`:443` target in case UDP/53 egress is filtered but web traffic isn't.
+
+### Catching host-only networking
+
+Probing the internet won't notice a **host-only** adapter (VM can reach your host
+but not the internet) — which for malware work is exactly the exposure you care
+about. Add your host or gateway IP as a target to catch it:
+
+```
+cargo run -p FuckAroundFindOut -- --target 192.168.56.1:445 --target 8.8.8.8:53
+```
+
+(Point it at a port your host actually has open — 445/SMB, 139, 3389/RDP, or an SSH
+port — so the handshake completes.)
+
+### Cross-platform
+
+Unlike the Linux-specific tools here, FAFO is pure `std` + `clap` and runs on
+Windows, Linux, or macOS — so it works whatever your analysis VM runs.
+
+### Usage
+
+```
+# Defaults: public DNS servers, once per second
+cargo run -p FuckAroundFindOut
+
+# Also watch a host-only adapter, check twice a second
+cargo run -p FuckAroundFindOut -- --target 192.168.56.1:445 --interval-ms 500
+
+# One-shot check for scripting (exit 0 = isolated, 1 = exposed)
+cargo run -p FuckAroundFindOut -- --once
+
+# Quieter: no bell, heartbeat once a minute
+cargo run -p FuckAroundFindOut -- --no-bell --heartbeat-secs 60
+```
+
+On an interactive terminal, output is colored (green safe / red alert) and the bell
+rings on breach; when piped (e.g. through the dashboard) it degrades to plain
+prefixed lines automatically.
+
+Output line prefixes:
+
+| Prefix | Meaning |
+|---|---|
+| `SAFE` | Isolated — no target was reachable this sweep (printed on a heartbeat, or when connectivity is lost again) |
+| `ALERT` | A target answered — the VM can reach the outside world **right now**. Printed every second until it can't |
+| `ERROR` | A configured target wasn't a valid numeric `ip:port` and was skipped |
+
+There's no separate heartbeat prefix — a `SAFE` line *is* the "still isolated"
+signal, and its absence (no lines at all) is itself a cue that something's wrong.
+
+## HumptyDumpty — static malware triage
+
+The automated first pass on a sample: point it at a file and it cracks it open
+into everything you'd pull by hand before deciding what's worth a closer look —
+and it never runs the file. Static only, by design: dynamic behaviour is a job for
+a human watching a detonation. Pairs with FluShot — decrypt a sample in your VM,
+then triage it.
+
+What it pulls:
+
+- **Hashes** — MD5, SHA-256, and (for PE) **imphash** for clustering related samples.
+- **Identification** — PE/ELF/Mach-O, architecture, subsystem, and compile
+  timestamp (flagged when it's an implausible reproducible-build value rather than
+  a real time).
+- **Per-section entropy** — flags sections above ~7.2 bits/byte as likely packed
+  or encrypted.
+- **Suspicious imports** — Windows APIs commonly abused for injection, execution,
+  download, persistence, anti-analysis, etc., grouped by intent.
+- **Carved IOCs** — URLs, IPs, domains, emails, and registry keys, from both ASCII
+  and UTF-16 "wide" strings.
+
+### Usage
+
+```
+# Triage a sample
+cargo run -p HumptyDumpty -- ./suspicious.exe
+
+# Several at once, and also dump notable (keyword-matched) strings
+cargo run -p HumptyDumpty -- --strings sample1.bin sample2.dll
+```
+
+Through the dashboard: click the **HumptyDumpty** card, paste the path to a sample,
+optionally tick "notable strings", and click **Analyze**.
+
+Output line prefixes:
+
+| Prefix | Meaning |
+|---|---|
+| `FILE` | The file being analyzed, and its format/arch line |
+| `HASH` | md5 / sha256 / imphash |
+| `SECTION` | A PE/ELF section with its size and entropy |
+| `IMPORT` | A suspicious imported API, with its category |
+| `IOC` | A carved indicator (`url=`, `ip=`, `domain=`, `email=`, `regkey=`) |
+| `STRING` | A notable string (only with `--strings`) |
+| `INFO` | Summary counts and non-finding notes |
+| `ALERT` | A high-entropy section or a capability-rich import profile |
+| `FAIL` | The file couldn't be read |
+
 ## dashboard — web UI
 
 A small Axum server that's a thin, tool-agnostic launcher: each tool page builds a query string from a form, opens a Server-Sent Events connection, and the server builds (quietly) and runs that tool as a subprocess, streaming its stdout/stderr back live. A shared per-tool Stop button works by killing the subprocess (or aborting the build) via a cancellation signal, so it works even for 4P's capture, which otherwise runs forever.
 
-Always binds to `127.0.0.1:7878` — by design, never configurable to anything else, since it launches active scans/captures on demand.
+Always binds to **loopback only** (`127.0.0.1`) — never a public interface, by design, since it launches active scans/captures on demand. The port is the one thing you can change: it defaults to **80** (so a `rustytoolz.local` hosts alias works with no port suffix) and is overridable via the `RUSTYTOOLZ_PORT` env var (e.g. `7878`).

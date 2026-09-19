@@ -19,12 +19,18 @@ const SEVERITY_PATTERNS = [
   [/^SUDO\s+fail\b/, 'sev-warn'],
   [/^SKIP\b/, 'sev-muted'],
   [/^DATA\b/, 'sev-muted'],
+  [/^(STRING|INFO)\b/, 'sev-muted'],
+  [/^KEY\b/, 'sev-warn'],
+  [/^(IOC|IMPORT)\b/, 'sev-warn'],
   [/^PASS\b/, 'sev-ok'],
+  [/^SAFE\b/, 'sev-ok'],
+  [/^SAVED\b/, 'sev-ok'],
+  [/^OPENED\b/, 'sev-ok'],
   [/^ADDED\b/, 'sev-ok'],
   [/^LOGIN\s+ok\b/, 'sev-ok'],
   [/^PORT \d+ is Open/, 'sev-ok'],
   [/^Baseline created/, 'sev-ok'],
-  [/^(CONN|SUDO|HTTP|DNS|TCP|UDP|ICMP|ARP)\b/, 'sev-info'],
+  [/^(CONN|SUDO|HTTP|DNS|TCP|UDP|ICMP|ARP|FETCH|BLOB|FILE|HASH|SECTION)\b/, 'sev-info'],
 ];
 
 function severityClass(line) {

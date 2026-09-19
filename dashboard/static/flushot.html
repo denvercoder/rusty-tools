@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FluShot — Rusty Toolz</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <a class="back" href="/">← Rusty Toolz</a>
+  <h1>💉 FluShot</h1>
+  <p>Encrypted sample vault. Encrypt fetches samples straight to ciphertext so AV never sees them; Decrypt restores them for analysis (run that inside your VM).</p>
+</header>
+<main>
+  <div class="tabs" role="tablist">
+    <button class="tab active" type="button" data-tab="encrypt">ENCRYPT</button>
+    <button class="tab" type="button" data-tab="decrypt">DECRYPT</button>
+  </div>
+
+  <!-- ================= ENCRYPT ================= -->
+  <section id="tab-encrypt" class="tab-panel active">
+    <div class="vault-callout">
+      <span class="vault-callout-icon">📁</span>
+      <div class="vault-callout-body">
+        <div class="vault-callout-label">Encrypted blobs are saved to</div>
+        <code class="vault-callout-path" id="vault-path">FluShot/vault/</code>
+        <div class="vault-callout-note">The key file <code>.flushot.key</code> lives here too — copy it into your VM's vault once so Decrypt can work there.</div>
+      </div>
+    </div>
+
+    <form id="encrypt-form">
+      <label>
+        Sample URLs
+        <span class="hint">Paste a URL and another box appears. Blank boxes are ignored. Each file is downloaded (no browser) and encrypted into the vault.</span>
+      </label>
+      <div class="url-list" id="url-list"></div>
+      <div class="button-row">
+        <button type="submit" id="encrypt-run-btn">Fetch &amp; Encrypt</button>
+        <button type="button" id="encrypt-stop-btn" class="stop" hidden>Stop</button>
+        <button type="button" id="encrypt-clear-btn" class="stop">Clear</button>
+      </div>
+    </form>
+    <div class="panel">
+      <h2>Output</h2>
+      <pre id="encrypt-output" class="log-panel"></pre>
+    </div>
+  </section>
+
+  <!-- ================= DECRYPT ================= -->
+  <section id="tab-decrypt" class="tab-panel">
+    <div class="vault-callout danger">
+      <span class="vault-callout-icon">⚠️</span>
+      <div class="vault-callout-body">
+        <div class="vault-callout-label">Decrypting writes LIVE plaintext to</div>
+        <code class="vault-callout-path" id="decrypted-path">FluShot/decrypted/</code>
+        <div class="vault-callout-note">This restores the real sample to disk. Only do this inside your analysis VM (AV off) — never on your host.</div>
+      </div>
+    </div>
+
+    <form id="decrypt-form">
+      <label>
+        Blobs in the vault
+        <span class="hint">Select the encrypted blobs to restore. <button type="button" id="refresh-blobs" class="stop" style="align-self:auto;padding:0.2rem 0.6rem;font-size:0.8rem;">Refresh</button></span>
+      </label>
+      <div class="blob-list" id="blob-list"></div>
+      <label>
+        Output folder
+        <span class="hint">Where the decrypted files are written.</span>
+        <input type="text" id="decrypt-out" name="out" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="button-row">
+        <button type="submit" id="decrypt-run-btn">Decrypt Selected</button>
+        <button type="button" id="decrypt-stop-btn" class="stop" hidden>Stop</button>
+        <button type="button" id="decrypt-clear-btn" class="stop">Clear</button>
+      </div>
+    </form>
+    <div class="panel">
+      <h2>Output</h2>
+      <pre id="decrypt-output" class="log-panel"></pre>
+    </div>
+  </section>
+</main>
+
+<script src="/panel.js"></script>
+<script>
+  // --- tab switching -------------------------------------------------------
+  const tabs = [...document.querySelectorAll('.tab')];
+  const panels = {
+    encrypt: document.getElementById('tab-encrypt'),
+    decrypt: document.getElementById('tab-decrypt'),
+  };
+  tabs.forEach((tab) => {
+    tab.addEventListener('click', () => {
+      tabs.forEach((t) => t.classList.toggle('active', t === tab));
+      const name = tab.dataset.tab;
+      Object.entries(panels).forEach(([k, el]) => el.classList.toggle('active', k === name));
+      if (name === 'decrypt') loadInfo(); // refresh blob list on entry
+    });
+  });
+
+  // --- shared: fill banners + blob list from the server --------------------
+  const blobList = document.getElementById('blob-list');
+  const decryptOut = document.getElementById('decrypt-out');
+  let decryptOutTouched = false;
+  decryptOut.addEventListener('input', () => { decryptOutTouched = true; });
+
+  function loadInfo() {
+    fetch('/flushot/info')
+      .then((r) => r.json())
+      .then((info) => {
+        if (info.vault) document.getElementById('vault-path').textContent = info.vault;
+        if (info.decrypted) {
+          document.getElementById('decrypted-path').textContent = info.decrypted;
+          if (!decryptOutTouched) decryptOut.value = info.decrypted;
+        }
+        renderBlobs(info.blobs || []);
+      })
+      .catch(() => { /* leave fallbacks */ });
+  }
+
+  function renderBlobs(blobs) {
+    blobList.replaceChildren();
+    if (blobs.length === 0) {
+      const p = document.createElement('div');
+      p.className = 'blob-list-empty';
+      p.textContent = 'No blobs in the vault yet — encrypt something first.';
+      blobList.appendChild(p);
+      return;
+    }
+    for (const name of blobs) {
+      const label = document.createElement('label');
+      label.className = 'toggle';
+      const cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.value = name;
+      const span = document.createElement('span');
+      span.textContent = name; // textContent — never innerHTML (see panel.js note)
+      label.append(cb, span);
+      blobList.appendChild(label);
+    }
+  }
+
+  // --- generic SSE runner --------------------------------------------------
+  function runStream(url, outputEl, runBtn, stopBtn, runningLabel, idleLabel) {
+    clearPanel(outputEl);
+    runBtn.disabled = true;
+    runBtn.textContent = runningLabel;
+    stopBtn.hidden = false;
+    const source = new EventSource(url);
+    source.onmessage = (e) => appendLine(outputEl, e.data);
+    const finish = () => {
+      runBtn.disabled = false;
+      runBtn.textContent = idleLabel;
+      stopBtn.hidden = true;
+      source.close();
+    };
+    source.addEventListener('done', finish);
+    source.onerror = finish;
+    return source;
+  }
+
+  // --- ENCRYPT tab ---------------------------------------------------------
+  const urlList = document.getElementById('url-list');
+  const encryptForm = document.getElementById('encrypt-form');
+  const encryptOutput = document.getElementById('encrypt-output');
+  const encryptRun = document.getElementById('encrypt-run-btn');
+  const encryptStop = document.getElementById('encrypt-stop-btn');
+  const encryptClear = document.getElementById('encrypt-clear-btn');
+
+  function addRow(focus) {
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.placeholder = 'https://…/sample';
+    input.autocomplete = 'off';
+    input.spellcheck = false;
+    input.addEventListener('input', onRowInput);
+    urlList.appendChild(input);
+    if (focus) input.focus();
+  }
+  function onRowInput(event) {
+    const inputs = [...urlList.querySelectorAll('input')];
+    const last = inputs[inputs.length - 1];
+    if (event.target === last && last.value.trim() !== '') addRow(false);
+  }
+  function resetUrlList() {
+    urlList.replaceChildren();
+    addRow(false);
+  }
+
+  encryptForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const urls = [...urlList.querySelectorAll('input')].map((i) => i.value.trim()).filter(Boolean);
+    if (urls.length === 0) return;
+    const params = new URLSearchParams();
+    params.set('urls', urls.join('\n'));
+    runStream('/flushot/run?' + params.toString(), encryptOutput, encryptRun, encryptStop, 'Working…', 'Fetch & Encrypt');
+  });
+  encryptStop.addEventListener('click', () => {
+    encryptStop.disabled = true;
+    fetch('/flushot/stop', { method: 'POST' }).finally(() => { encryptStop.disabled = false; });
+  });
+  encryptClear.addEventListener('click', () => { clearPanel(encryptOutput); resetUrlList(); });
+
+  // --- DECRYPT tab ---------------------------------------------------------
+  const decryptForm = document.getElementById('decrypt-form');
+  const decryptOutput = document.getElementById('decrypt-output');
+  const decryptRun = document.getElementById('decrypt-run-btn');
+  const decryptStop = document.getElementById('decrypt-stop-btn');
+  const decryptClear = document.getElementById('decrypt-clear-btn');
+  const refreshBlobs = document.getElementById('refresh-blobs');
+
+  decryptForm.addEventListener('submit', (event) => {
+    event.preventDefault();
+    const blobs = [...blobList.querySelectorAll('input:checked')].map((cb) => cb.value);
+    if (blobs.length === 0) return;
+    const params = new URLSearchParams();
+    params.set('blobs', blobs.join('\n'));
+    if (decryptOut.value.trim()) params.set('out', decryptOut.value.trim());
+    runStream('/flushot/decrypt?' + params.toString(), decryptOutput, decryptRun, decryptStop, 'Working…', 'Decrypt Selected');
+  });
+  decryptStop.addEventListener('click', () => {
+    decryptStop.disabled = true;
+    fetch('/flushot/stop', { method: 'POST' }).finally(() => { decryptStop.disabled = false; });
+  });
+  decryptClear.addEventListener('click', () => clearPanel(decryptOutput));
+  refreshBlobs.addEventListener('click', loadInfo);
+
+  // --- init ----------------------------------------------------------------
+  resetUrlList();
+  loadInfo();
+</script>
+</body>
+</html>

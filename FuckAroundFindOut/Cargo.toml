@@ -1,0 +1,12 @@
+[package]
+name = "FuckAroundFindOut"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# default-features disabled to drop clap's `color` feature, whose Windows
+# console support (anstyle-wincon -> windows-sys) needs MinGW's dlltool to build
+# on the GNU toolchain. FAFO colors its own output, so clap's colored --help is
+# no loss. This keeps FAFO buildable on Windows with no Visual Studio and no
+# MinGW tooling.
+clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }

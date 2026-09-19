@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FuckAroundFindOut — Rusty Toolz</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <a class="back" href="/">← Rusty Toolz</a>
+  <h1>🐤 FuckAroundFindOut</h1>
+  <p>Network isolation canary. Runs inside a malware-analysis VM and screams the instant it can reach the outside world — so you never forget to re-disable the adapter after pulling a sample.</p>
+</header>
+<main>
+  <form id="fafo-form">
+    <label>
+      Extra targets <span class="hint">optional — ip:port, comma or space separated. Add your host-only gateway IP (e.g. <code>192.168.56.1:445</code>) to catch host-only networking. Blank = public DNS defaults.</span>
+      <input type="text" id="targets" name="targets" placeholder="192.168.56.1:445">
+    </label>
+    <div class="panels">
+      <label>
+        Interval (ms) <span class="hint">between checks</span>
+        <input type="number" id="interval_ms" name="interval_ms" min="100" step="100" placeholder="1000">
+      </label>
+      <label>
+        Timeout (ms) <span class="hint">per connection</span>
+        <input type="number" id="timeout_ms" name="timeout_ms" min="100" step="100" placeholder="800">
+      </label>
+    </div>
+    <label class="toggle">
+      <input type="checkbox" id="no_popup" name="no_popup">
+      Suppress the native Windows popup (rely on this dashboard's modal only)
+    </label>
+    <div class="button-row">
+      <button type="submit" id="run-btn">Start Monitoring</button>
+      <button type="button" id="stop-btn" class="stop" hidden>Stop</button>
+      <button type="button" id="clear-btn" class="stop">Clear</button>
+    </div>
+  </form>
+
+  <div class="fafo-status-wrap">
+    <span id="status-pill" class="status-pill idle">○ not running</span>
+    <button type="button" id="notify-btn" class="stop">Enable breach alerts</button>
+  </div>
+
+  <div class="panel">
+    <h2>Output</h2>
+    <pre id="output" class="log-panel"></pre>
+  </div>
+</main>
+
+<div id="breach-modal" class="fafo-modal-overlay" hidden>
+  <div class="fafo-modal" role="alertdialog" aria-modal="true" aria-labelledby="breach-title">
+    <h2 id="breach-title">🚨 Isolation Breach</h2>
+    <p>The VM can reach the outside world <strong>right now</strong> — via <strong id="breach-target">the internet</strong>.</p>
+    <p class="fafo-modal-action">Stop all analysis and disable the VM network adapter immediately.</p>
+    <button type="button" id="breach-dismiss">Acknowledged</button>
+  </div>
+</div>
+
+<script src="/panel.js"></script>
+<script>
+  const form = document.getElementById('fafo-form');
+  const output = document.getElementById('output');
+  const runBtn = document.getElementById('run-btn');
+  const stopBtn = document.getElementById('stop-btn');
+  const clearBtn = document.getElementById('clear-btn');
+  const statusPill = document.getElementById('status-pill');
+  const notifyBtn = document.getElementById('notify-btn');
+  const modal = document.getElementById('breach-modal');
+  const modalTarget = document.getElementById('breach-target');
+  const modalDismiss = document.getElementById('breach-dismiss');
+
+  let source = null;
+  let exposed = false;      // mirrors FAFO's own safe/exposed state
+  let audioCtx = null;      // created on Start (a user gesture) so beeps are allowed
+
+  function setRunning(running) {
+    runBtn.disabled = running;
+    runBtn.textContent = running ? 'Monitoring…' : 'Start Monitoring';
+    stopBtn.hidden = !running;
+  }
+
+  function setStatus(state, text) {
+    statusPill.className = 'status-pill ' + state;
+    statusPill.textContent = text;
+  }
+
+  function beep() {
+    try {
+      if (!audioCtx) return;
+      const osc = audioCtx.createOscillator();
+      const gain = audioCtx.createGain();
+      osc.connect(gain);
+      gain.connect(audioCtx.destination);
+      osc.type = 'square';
+      osc.frequency.value = 880;
+      gain.gain.value = 0.12;
+      osc.start();
+      osc.stop(audioCtx.currentTime + 0.25);
+    } catch (e) { /* audio is best-effort */ }
+  }
+
+  function notify(target) {
+    if ('Notification' in window && Notification.permission === 'granted') {
+      try {
+        new Notification('🚨 ISOLATION BREACH', {
+          body: 'Internet reachable via ' + target + ' — disable the VM adapter now.',
+          requireInteraction: true,
+        });
+      } catch (e) { /* notifications are best-effort */ }
+    }
+  }
+
+  function onExposed(line) {
+    // Line looks like: "ALERT  internet reachable via 1.1.1.1:53 — DISABLE THE ADAPTER"
+    const m = line.match(/via\s+(\S+)/);
+    const target = m ? m[1] : 'the internet';
+    setStatus('exposed', '● EXPOSED — reachable via ' + target);
+    if (!exposed) {
+      // safe -> exposed transition: fire the loud, one-shot warnings.
+      exposed = true;
+      modalTarget.textContent = target;
+      modal.hidden = false;
+      notify(target);
+      beep();
+    }
+  }
+
+  function onSafe() {
+    if (exposed) beep(); // audible "cleared" cue on the way back down
+    exposed = false;
+    setStatus('safe', '● ISOLATED — no connectivity');
+  }
+
+  function handleLine(line) {
+    appendLine(output, line);
+    if (/^ALERT\b/.test(line)) onExposed(line);
+    else if (/^SAFE\b/.test(line)) onSafe();
+  }
+
+  function resetView() {
+    clearPanel(output);
+    exposed = false;
+    modal.hidden = true;
+    setStatus('idle', '○ not running');
+  }
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (source) source.close();
+
+    // Unlock audio now, while we still have the click gesture.
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+    } catch (e) { /* no audio available */ }
+
+    resetView();
+    setRunning(true);
+    setStatus('safe', '● starting…');
+
+    const params = new URLSearchParams();
+    const targets = document.getElementById('targets').value.trim();
+    const interval = document.getElementById('interval_ms').value.trim();
+    const timeout = document.getElementById('timeout_ms').value.trim();
+    if (targets) params.set('targets', targets);
+    if (interval) params.set('interval_ms', interval);
+    if (timeout) params.set('timeout_ms', timeout);
+    if (document.getElementById('no_popup').checked) params.set('no_popup', '1');
+
+    source = new EventSource('/fafo/run?' + params.toString());
+    source.onmessage = (event) => handleLine(event.data);
+    source.addEventListener('done', () => {
+      setRunning(false);
+      setStatus('idle', '○ stopped');
+      source.close();
+    });
+    source.onerror = () => {
+      setRunning(false);
+      setStatus('idle', '○ stopped');
+      source.close();
+    };
+  });
+
+  stopBtn.addEventListener('click', () => {
+    stopBtn.disabled = true;
+    fetch('/fafo/stop', { method: 'POST' }).finally(() => {
+      stopBtn.disabled = false;
+    });
+  });
+
+  clearBtn.addEventListener('click', resetView);
+  modalDismiss.addEventListener('click', () => { modal.hidden = true; });
+
+  notifyBtn.addEventListener('click', () => {
+    if (!('Notification' in window)) {
+      notifyBtn.textContent = 'Notifications unsupported';
+      notifyBtn.disabled = true;
+      return;
+    }
+    Notification.requestPermission().then((perm) => {
+      if (perm === 'granted') {
+        notifyBtn.textContent = 'Breach alerts on ✓';
+        notifyBtn.disabled = true;
+      } else {
+        notifyBtn.textContent = 'Notifications blocked';
+      }
+    });
+  });
+
+  resetView();
+</script>
+</body>
+</html>

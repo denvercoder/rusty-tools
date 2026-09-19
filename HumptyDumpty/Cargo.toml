@@ -1,0 +1,16 @@
+[package]
+name = "HumptyDumpty"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# clap without default features (drops `color` -> windows-sys), same as the
+# other cross-platform tools here.
+clap = { version = "4", default-features = false, features = ["std", "derive", "help", "usage", "error-context"] }
+# PE / ELF / Mach-O header parsing.
+goblin = "0.8"
+# Hashing: SHA-256, MD5 (for file hashes and imphash).
+sha2 = "0.10"
+md-5 = "0.10"
+# IOC carving.
+regex = "1"

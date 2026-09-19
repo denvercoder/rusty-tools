@@ -3,47 +3,77 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Rusty Tools</title>
+<title>Rusty Toolz</title>
 <link rel="stylesheet" href="/style.css">
 </head>
 <body>
 <header>
-  <h1>🦀 Rusty Tools</h1>
+  <h1>🦀 Rusty Toolz</h1>
   <p>A local collection of Rust cybersecurity tools. Pick one to get started.</p>
 </header>
 <main>
-  <div class="tool-grid">
-    <a class="tool-card" href="/portofino">
-      <span class="tool-icon">🔍</span>
-      <h2>Portofino</h2>
-      <p>Multithreaded TCP port scanner — single host, range, or CIDR block.</p>
-    </a>
-    <a class="tool-card" href="/pppp">
-      <span class="tool-icon">📡</span>
-      <h2>PPPP</h2>
-      <p>PickAPeckOfPacketParsers — live packet capture &amp; parsing on a network interface.</p>
-    </a>
-    <a class="tool-card" href="/oneforthehoney">
-      <span class="tool-icon">🍯</span>
-      <h2>OneForTheHoney</h2>
-      <p>Decoy-service honeypot listener — logs every connection attempt against bait ports.</p>
-    </a>
-    <a class="tool-card" href="/bunyan">
-      <span class="tool-icon">🪵</span>
-      <h2>Bunyan</h2>
-      <p>Systemd-journal auth log analyzer — watches sshd &amp; sudo activity for brute-force and compromise patterns.</p>
-    </a>
-    <a class="tool-card" href="/feefifofim">
-      <span class="tool-icon">👣</span>
-      <h2>FeeFiFoFIM</h2>
-      <p>File integrity monitor — baselines a directory and flags anything added, removed, or changed.</p>
-    </a>
-    <a class="tool-card" href="/hardhat">
-      <span class="tool-icon">⛑️</span>
-      <h2>HardHat</h2>
-      <p>Security config auditor — checks SSH config, accounts, sudoers, firewall status, and file permissions.</p>
-    </a>
-  </div>
+  <section class="tool-group">
+    <h2 class="tool-group-header">Network</h2>
+    <div class="tool-grid">
+      <a class="tool-card" href="/portofino">
+        <span class="tool-icon">🔍</span>
+        <h2>Portofino</h2>
+        <p>Multithreaded TCP port scanner — single host, range, or CIDR block.</p>
+      </a>
+      <a class="tool-card" href="/pppp">
+        <span class="tool-icon">📡</span>
+        <h2>PPPP (4P)</h2>
+        <p>PickAPeckOfPacketParsers — live packet capture &amp; parsing on a network interface.</p>
+      </a>
+      <a class="tool-card" href="/oneforthehoney">
+        <span class="tool-icon">🍯</span>
+        <h2>OneForTheHoney</h2>
+        <p>Decoy-service honeypot listener — logs every connection attempt against bait ports.</p>
+      </a>
+    </div>
+  </section>
+
+  <section class="tool-group">
+    <h2 class="tool-group-header">Host detection / audit</h2>
+    <div class="tool-grid">
+      <a class="tool-card" href="/bunyan">
+        <span class="tool-icon">🪵</span>
+        <h2>Bunyan</h2>
+        <p>Systemd-journal auth log analyzer — watches sshd &amp; sudo activity for brute-force and compromise patterns.</p>
+      </a>
+      <a class="tool-card" href="/feefifofim">
+        <span class="tool-icon">👣</span>
+        <h2>FeeFiFoFIM</h2>
+        <p>File integrity monitor — baselines a directory and flags anything added, removed, or changed.</p>
+      </a>
+      <a class="tool-card" href="/hardhat">
+        <span class="tool-icon">⛑️</span>
+        <h2>HardHat</h2>
+        <p>Security config auditor — checks SSH config, accounts, sudoers, firewall status, and file permissions.</p>
+      </a>
+    </div>
+  </section>
+
+  <section class="tool-group">
+    <h2 class="tool-group-header">Malware analysis</h2>
+    <div class="tool-grid">
+      <a class="tool-card" href="/fafo">
+        <span class="tool-icon">🐤</span>
+        <h2>FuckAroundFindOut</h2>
+        <p>Network isolation canary — goes red and alerts the instant a locked-down VM can reach the outside world.</p>
+      </a>
+      <a class="tool-card" href="/flushot">
+        <span class="tool-icon">💉</span>
+        <h2>FluShot</h2>
+        <p>Encrypted sample vault — fetches malware straight to ciphertext so AV never sees it; decrypt inside your VM.</p>
+      </a>
+      <a class="tool-card" href="/humptydumpty">
+        <span class="tool-icon">🥚</span>
+        <h2>HumptyDumpty</h2>
+        <p>Static malware triage — cracks a sample open into hashes, PE facts, entropy, IOCs and suspicious imports (never runs it).</p>
+      </a>
+    </div>
+  </section>
 </main>
 </body>
 </html>

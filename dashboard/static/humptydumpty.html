@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HumptyDumpty — Rusty Toolz</title>
+<link rel="stylesheet" href="/style.css">
+</head>
+<body>
+<header>
+  <a class="back" href="/">← Rusty Toolz</a>
+  <h1>🥚 HumptyDumpty</h1>
+  <p>Static malware triage. Point it at a sample and it cracks it open into hashes, PE/ELF facts, per-section entropy, suspicious imports, and carved IOCs — without ever running it. Pairs with FluShot: decrypt a sample in your VM, then triage it here.</p>
+</header>
+<main>
+  <form id="hd-form">
+    <label>
+      File to analyze
+      <span class="hint">Absolute path to the sample on this machine. Static analysis only — it never executes the file — but the file is still live malware, so do this inside your VM.</span>
+      <input type="text" id="file" name="file" placeholder="C:\samples\suspicious.exe" autocomplete="off" spellcheck="false">
+    </label>
+    <label class="toggle">
+      <input type="checkbox" id="strings" name="strings">
+      Also print notable strings (keyword-matched)
+    </label>
+    <div class="button-row">
+      <button type="submit" id="run-btn">Analyze</button>
+      <button type="button" id="stop-btn" class="stop" hidden>Stop</button>
+      <button type="button" id="clear-btn" class="stop">Clear</button>
+    </div>
+  </form>
+  <div class="panel">
+    <h2>Triage</h2>
+    <pre id="output" class="log-panel"></pre>
+  </div>
+</main>
+<script src="/panel.js"></script>
+<script>
+  const form = document.getElementById('hd-form');
+  const fileInput = document.getElementById('file');
+  const stringsInput = document.getElementById('strings');
+  const output = document.getElementById('output');
+  const runBtn = document.getElementById('run-btn');
+  const stopBtn = document.getElementById('stop-btn');
+  const clearBtn = document.getElementById('clear-btn');
+  let source = null;
+
+  function setRunning(running) {
+    runBtn.disabled = running;
+    runBtn.textContent = running ? 'Analyzing…' : 'Analyze';
+    stopBtn.hidden = !running;
+  }
+
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (!fileInput.value.trim()) return;
+    if (source) source.close();
+    clearPanel(output);
+    setRunning(true);
+
+    const params = new URLSearchParams();
+    params.set('file', fileInput.value.trim());
+    if (stringsInput.checked) params.set('strings', '1');
+
+    source = new EventSource('/humptydumpty/run?' + params.toString());
+    source.onmessage = (e) => appendLine(output, e.data);
+    source.addEventListener('done', () => { setRunning(false); source.close(); });
+    source.onerror = () => { setRunning(false); source.close(); };
+  });
+
+  stopBtn.addEventListener('click', () => {
+    stopBtn.disabled = true;
+    fetch('/humptydumpty/stop', { method: 'POST' }).finally(() => { stopBtn.disabled = false; });
+  });
+
+  clearBtn.addEventListener('click', () => clearPanel(output));
+</script>
+</body>
+</html>
