@@ -1,6 +1,10 @@
 # Netlify config for the Rusty Toolz static showcase.
-# There is no build step — the site under site/ is plain static HTML/CSS/JS.
-# The actual tools + dashboard backend only run locally (see site/ pages).
+#
+# The site under site/ is plain static HTML/CSS/JS — there is NO build step.
+# `command` is set to a no-op so Netlify never tries to compile the root Rust
+# workspace, and `publish` points at the site/ folder. The actual tools +
+# dashboard only ever run locally (the site's pages say so).
 
 [build]
 publish = "site"
+command = "echo 'Static showcase — no build step.'"
