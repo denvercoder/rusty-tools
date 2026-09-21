@@ -83,7 +83,7 @@ fi
 # ---- 4. build ---------------------------------------------------------------
 if [ "$PLATFORM" = linux ]; then
   info "Building the whole suite (release)..."
-  cargo build --release
+  cargo build --release --workspace
 else
   info "Building the cross-platform tools + dashboard (release)..."
   build_args=(); for t in "${PORTABLE_TOOLS[@]}"; do build_args+=(-p "$t"); done
